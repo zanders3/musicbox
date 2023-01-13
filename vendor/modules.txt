@@ -1,0 +1,14 @@
+# github.com/dhowden/tag v0.0.0-20220618230019-adf36e896086
+## explicit; go 1.18
+github.com/dhowden/tag
+# github.com/huin/goupnp v1.0.3
+## explicit; go 1.14
+github.com/huin/goupnp
+github.com/huin/goupnp/dcps/av1
+github.com/huin/goupnp/httpu
+github.com/huin/goupnp/scpd
+github.com/huin/goupnp/soap
+github.com/huin/goupnp/ssdp
+# golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
+## explicit
+golang.org/x/sync/errgroup

@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Music</title>
+    <meta name="description" content="Control your music via sonos">
+    <link rel="canonical" href="https://music.home" />
+    <link rel="stylesheet" href="/static/layout.css" type="text/css" />
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <meta name="theme-color" content="#2E3842" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+</head>
+
+<body>
+    <div class="bgimage"></div>
+    <div class="topbar">
+        <a href="/#"><img src="/static/icon.png" />
+            <div class="title">Music</div>
+        </a>
+        <span id="topbarlinks">
+            <a class="link" href="#folders"><i class="material-icons">folder</i> Folders</a>
+            <a class="link" href="#songs"><i class="material-icons">music_note</i> Songs</a>
+            <a class="link" href="#albums"><i class="material-icons">album</i> Albums</a>
+            <a class="link" href="#artists"><i class="material-icons">person</i> Artists</a>
+        </span>
+    </div>
+    <div id="results"></div>
+    <div class="player">
+        <div id="player-left">
+            <div id="player-albumcover"></div>
+            <div id="player-info"></div>
+        </div>
+        <div id="player-mid">
+            <div>
+                <button class="player-button" id="player-prev"><i class="material-icons">skip_previous</i></button>
+                <button class="player-button" id="player-play"><i class="material-icons">play_arrow</i></button>
+                <button class="player-button" id="player-next"><i class="material-icons">skip_next</i></button>
+            </div>
+            <div>
+                <div class="time-label">
+                    <div id="player-curtime">0:00</div>
+                </div>
+                <input id="player-range" type="range" min="0" max="100" value="0" />
+                <div class="time-label">
+                    <div id="player-endtime">0:00</div>
+                </div>
+            </div>
+        </div>
+        <div id="player-right">
+            <div>
+                <button id="player-mute">
+                    <i class="material-icons">volume_up</i>
+                </button>
+            </div>
+            <input id="player-volume" type="range" min="0" max="100" value="100" />
+        </div>
+    </div>
+    <script src="/static/music.js"></script>
+</body>
+
+</html>
