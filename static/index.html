@@ -20,9 +20,12 @@
             <div class="title">Music</div>
         </a>
         <span id="topbarlinks">
-            <a class="link" href="#songs"><i class="material-icons">music_note</i> Songs</a>
-            <a class="link" href="#albums"><i class="material-icons">album</i> Albums</a>
-            <a class="link" href="#artists"><i class="material-icons">person</i> Artists</a>
+            <a class="link" href="#songs"><span class="valign-wrapper"><i class="material-icons">music_note</i>
+                    Songs</span></a>
+            <a class="link" href="#albums"><span class="valign-wrapper"><i class="material-icons">album</i>
+                    Albums</span></a>
+            <a class="link" href="#artists"><span class="valign-wrapper"><i class="material-icons">person</i>
+                    Artists</span></a>
         </span>
     </div>
     <div id="results"></div>
@@ -36,6 +39,7 @@
                 <button class="player-button" id="player-prev"><i class="material-icons">skip_previous</i></button>
                 <button class="player-button" id="player-play"><i class="material-icons">play_arrow</i></button>
                 <button class="player-button" id="player-next"><i class="material-icons">skip_next</i></button>
+                <button class="player-button-sm" id="player-speakers"><i class=" material-icons">speaker</i></button>
             </div>
             <div>
                 <div class="time-label">
@@ -55,6 +59,8 @@
             </div>
             <input id="player-volume" type="range" min="0" max="100" value="100" />
         </div>
+    </div>
+    <div id="sonos-list">
     </div>
     <script src="music.js" async="true"></script>
 </body>

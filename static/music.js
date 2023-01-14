@@ -48,6 +48,7 @@
     el("player-volume").value = (audio.volume * 100).toString();
     el("player-mute").innerHTML = `<i class="material-icons">${audio.volume > 0 ? "volume_up" : "volume_mute"}</i>`;
   };
+  var sonosRoom = "";
   var playlist = [];
   var playlistIdx = 0;
   function nexttrack() {
@@ -68,32 +69,46 @@
       return;
     }
     let song = playlist[playlistIdx];
-    console.log("play " + song.Audio);
-    audio.src = song.Audio;
-    audio.load();
-    audio.play();
-    el("player-info").innerHTML = `<a href="#artists/${song.Artist}">${song.Artist}</a><br/><a href="#albums/${song.Album}">${song.Album}</a><br/>${song.Name}`;
-    el("player-albumcover").innerHTML = song.Image.length > 0 ? `<img class="easeload" onload="this.style.opacity=1" src="${song.Image}">` : ``;
-    if ("mediaSession" in navigator) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: song.Name,
-        artist: song.Artist,
-        album: song.Album,
-        artwork: [{ src: song.Image ?? "" }]
-      });
-      navigator.mediaSession.setActionHandler("play", () => {
-        audio.play();
-      });
-      navigator.mediaSession.setActionHandler("pause", () => {
-        audio.pause();
-      });
-      navigator.mediaSession.setActionHandler("seekto", (details) => {
-        if (details.seekTime) {
-          audio.currentTime = details.seekTime;
-        }
-      });
-      navigator.mediaSession.setActionHandler("previoustrack", () => prevtrack());
-      navigator.mediaSession.setActionHandler("nexttrack", () => nexttrack());
+    console.log("play " + song.Audio + " on " + sonosRoom);
+    if (sonosRoom.length == 0) {
+      audio.src = song.Audio;
+      audio.load();
+      audio.play();
+      el("player-info").innerHTML = `<a href="#artists/${song.Artist}">${song.Artist}</a><br/><a href="#albums/${song.Album}">${song.Album}</a><br/>${song.Name}`;
+      el("player-albumcover").innerHTML = song.Image.length > 0 ? `<img class="easeload" onload="this.style.opacity=1" src="${song.Image}">` : ``;
+      if ("mediaSession" in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: song.Name,
+          artist: song.Artist,
+          album: song.Album,
+          artwork: [{ src: song.Image ?? "" }]
+        });
+        navigator.mediaSession.setActionHandler("play", () => {
+          audio.play();
+        });
+        navigator.mediaSession.setActionHandler("pause", () => {
+          audio.pause();
+        });
+        navigator.mediaSession.setActionHandler("seekto", (details) => {
+          if (details.seekTime) {
+            audio.currentTime = details.seekTime;
+          }
+        });
+        navigator.mediaSession.setActionHandler("previoustrack", () => prevtrack());
+        navigator.mediaSession.setActionHandler("nexttrack", () => nexttrack());
+      }
+    } else {
+      audio.pause();
+      var req = new XMLHttpRequest();
+      req.open("POST", "/api/sonos/" + sonosRoom);
+      req.onload = function() {
+        console.log(req.response);
+      };
+      let songIds = [];
+      for (let idx = playlistIdx; idx < playlist.length; idx++) {
+        songIds.push(playlist[idx].SongId);
+      }
+      req.send(JSON.stringify({ SongIDs: songIds }));
     }
   }
   var prevApi = "";
@@ -177,11 +192,48 @@
     };
     req.send();
   }
+  var sonosRooms = [];
+  function sonosroomhtml() {
+    let html = `<div onclick="setspeaker(this)" data-room="" class="${sonosRoom.length == 0 ? "selected" : ""}"><span class="valign-wrapper"><i class="material-icons">${sonosRoom.length == 0 ? "check" : "speaker"}</i> Speaker</span></div>`;
+    for (let room of sonosRooms) {
+      html += `<div onclick="setspeaker(this)" data-room="${room}" class="${sonosRoom == room ? "selected" : ""}"><span class="valign-wrapper"><i class="material-icons">${sonosRoom == room ? "check" : "speaker"}</i> ${room}</span></div>`;
+    }
+    return html;
+  }
+  window.setspeaker = function(elem) {
+    sonosRoom = elem.dataset.room;
+    console.log("set " + sonosRoom);
+    el("sonos-list").innerHTML = sonosroomhtml();
+    el("player-speakers").innerHTML = `<span class="valign-wrapper"><i class=" material-icons ${sonosRoom.length > 0 ? "selected" : ""}">speaker</i>${sonosRoom}</span>`;
+    audio.pause();
+  };
+  function refreshsonos() {
+    var req = new XMLHttpRequest();
+    req.open("GET", "/api/sonos");
+    req.onload = function() {
+      sonosRooms = JSON.parse(req.response).Rooms;
+      el("sonos-list").innerHTML = sonosroomhtml();
+      el("player-speakers").onclick = (e) => {
+        let style = el("sonos-list").style;
+        let button = el("player-speakers").getBoundingClientRect();
+        style.left = Math.min(window.innerWidth - 210, button.x) + "px";
+        style.bottom = window.innerHeight - button.y + 15 + "px";
+        style.display = "block";
+        e.stopPropagation();
+      };
+      document.body.onclick = function() {
+        el("sonos-list").style.display = "none";
+      };
+    };
+    el("sonos-list").innerHTML = "";
+    req.send();
+  }
   window.onhashchange = function() {
     getmusic(window.location.hash.slice(1));
   };
   window.onload = function() {
     getmusic(window.location.hash.slice(1));
+    refreshsonos();
     el("player-play").onclick = function() {
       if (is_playing) {
         audio.pause();

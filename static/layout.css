@@ -191,7 +191,7 @@ body {
     height: 35px;
     padding: 4px;
     font-size: 18px;
-    box-shadow: 0px 0px 4px black;
+    box-shadow: 0px 0px 4px rgb(0, 0, 0, 0.4);
     z-index: 10;
 }
 
@@ -340,6 +340,7 @@ td {
 #player-mid div {
     display: flex;
     justify-content: center;
+    align-items: center;
 }
 
 .time-label {
@@ -353,7 +354,7 @@ td {
     background-color: #1a2025;
     width: 108px;
     height: 108px;
-    box-shadow: 0px 1px 4px black;
+    box-shadow: 0px 1px 4px rgb(0, 0, 0, 0.4);
 }
 
 #player-albumcover img {
@@ -418,6 +419,49 @@ td {
     margin: 4px;
 }
 
+.player-button-sm {
+    border: 0;
+    border-radius: 30px;
+    background-color: #2E3842;
+    color: #C8CFDB;
+    cursor: pointer;
+}
+
+.player-button-sm i {
+    font-size: 30px;
+}
+
+.valign-wrapper {
+    display: flex;
+    align-items: center;
+}
+
+#sonos-list {
+    display: none;
+    position: absolute;
+    width: 200px;
+    background-color: #2E3842;
+    box-shadow: 0px 0px 20px rgb(0, 0, 0, 0.4);
+    border-radius: 5px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+
+.selected {
+    color: #FFAB42;
+}
+
+#sonos-list div {
+    cursor: pointer;
+    padding: 5px;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+#sonos-list div:hover {
+    background: #565E66;
+}
+
 .player button i {
     font-size: 40px;
 }
@@ -450,7 +494,7 @@ td {
 
 .albumbox {
     background-color: #1a2025;
-    box-shadow: 0px 2px 6px black;
+    box-shadow: 3px 3px 6px rgba(0, 0, 0, 0.2);
     width: 200px;
     height: 200px;
     margin: 0px;
@@ -553,6 +597,19 @@ td {
     transition: opacity 0.5s ease;
 }
 
+#sonos-list div {
+    flex-direction: row;
+    justify-content: left;
+}
+
+#sonos-list label {
+    cursor: pointer;
+}
+
+body {
+    display: block !important;
+}
+
 @media only screen and (max-width: 1200px) {
     #player-right {
         flex-grow: 0;
@@ -598,8 +655,4 @@ td {
     #player-left {
         width: inherit;
     }
-}
-
-body {
-    display: block !important;
 }
