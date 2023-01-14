@@ -2,16 +2,19 @@ package main
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
-	"path"
-	"path/filepath"
 	"strings"
 
+	avtransport "github.com/szatmary/sonos/AVTransport"
 	"github.com/zanders3/music/pkg/music"
+	"github.com/zanders3/music/static"
 )
 
 var sourceFolder = flag.String("folder", "D:\\Music", "where the music is hosted")
@@ -38,7 +41,7 @@ type ErrorRes struct {
 	Message string
 }
 
-func WrapApi[Res any](method string, handle func(req *http.Request) (*Res, error)) func(http.ResponseWriter, *http.Request) {
+func WrapApi[Res any](handle func(req *http.Request) (*Res, error)) func(http.ResponseWriter, *http.Request) {
 	writeError := func(message string, code int, w http.ResponseWriter) {
 		resBytes, err := json.Marshal(&ErrorRes{Message: message, Code: code})
 		if err != nil {
@@ -48,15 +51,7 @@ func WrapApi[Res any](method string, handle func(req *http.Request) (*Res, error
 		_, _ = w.Write(resBytes)
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != method {
-			writeError("bad method", 400, w)
-			return
-		}
 		res, err := handle(r)
-		if err != nil {
-			writeError(err.Error(), 500, w)
-			return
-		}
 		if err != nil {
 			var httpError *HttpError
 			if errors.As(err, &httpError) {
@@ -92,7 +87,9 @@ func (n *NoListFs) Open(name string) (http.File, error) {
 }
 
 type MusicServer struct {
-	index music.MusicIndex
+	index        music.MusicIndex
+	sonos        *music.Sonos
+	internalAddr string
 }
 
 type ResultType string
@@ -110,41 +107,11 @@ type Result struct {
 	Type                 ResultType
 	Link, Audio          string
 	Artist, Album, Image string
+	SongId               int
 }
 
 type ListMusicRes struct {
 	Results []Result
-}
-
-func (m *MusicServer) listMusicFolder(folderPath string, pageToken string) (*ListMusicRes, error) {
-	if strings.Contains(folderPath, "..") {
-		return nil, NewHttpError(errors.New("bad request"), 400)
-	}
-	entries, err := os.ReadDir(path.Join(*sourceFolder, path.Clean(folderPath)))
-	if err != nil {
-		return nil, err
-	}
-	results := make([]Result, 0, len(entries))
-	for _, entry := range entries {
-		name := entry.Name()
-		if name == "." || name == ".." {
-			continue
-		}
-		if entry.IsDir() {
-			results = append(results, Result{Name: name, Link: "folders/" + path.Join(folderPath, name), Type: ResultType_Folder})
-		} else {
-			ext := filepath.Ext(name)
-			name = name[0 : len(name)-len(ext)]
-			if !music.IsMusicFile(ext) {
-				continue
-			}
-			results = append(results, Result{
-				Name: name, Type: ResultType_Song,
-				Audio: "/content/" + path.Join(folderPath, name) + ext,
-			})
-		}
-	}
-	return &ListMusicRes{Results: results}, nil
 }
 
 func albumResult(album *music.Album, header bool) Result {
@@ -155,26 +122,28 @@ func albumResult(album *music.Album, header bool) Result {
 	return Result{Name: album.Name, Type: t, Link: "albums/" + album.Name, Artist: album.Artist, Album: album.Name, Image: album.AlbumArtPath}
 }
 
-func songResult(album *music.Album, song *music.Song) Result {
+func (m *MusicServer) songResult(album *music.Album, songIdx int) Result {
 	albumArtPath := ""
 	if len(album.AlbumArtPath) > 0 {
-		albumArtPath = "/content/" + album.AlbumArtPath
+		albumArtPath = "/content" + album.AlbumArtPath
 	}
+	song := m.index.Songs[songIdx]
 	return Result{
-		Name: song.Title, Type: ResultType_Song,
-		Artist: song.Artist, Album: song.Album, Audio: "/content/" + song.Path, Image: albumArtPath,
+		Name: song.Title, Type: ResultType_Song, SongId: songIdx,
+		Artist: song.Artist, Album: song.Album, Audio: "/content" + song.Path, Image: albumArtPath,
 	}
 }
 
 func (m *MusicServer) ListMusic(r *http.Request) (*ListMusicRes, error) {
+	if r.Method != "GET" {
+		return nil, NewHttpError(fmt.Errorf("bad method"), 400)
+	}
 	searchType, path, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/api/music/"), "/")
-	pageToken := r.FormValue("pageToken")
 	if searchType == "" {
 		return &ListMusicRes{Results: []Result{
 			{Name: "Artists", Type: ResultType_Folder, Link: "artists"},
 			{Name: "Albums", Type: ResultType_Folder, Link: "albums"},
 			{Name: "Songs", Type: ResultType_Folder, Link: "songs"},
-			{Name: "Folders", Type: ResultType_Folder, Link: "folders"},
 		}}, nil
 	} else if searchType == "artists" {
 		m.index.SongsMu.Lock()
@@ -195,16 +164,14 @@ func (m *MusicServer) ListMusic(r *http.Request) (*ListMusicRes, error) {
 				if artist.Name == path {
 					for _, album := range m.index.Albums[artist.StartAlbumIdx:artist.EndAlbumIdx] {
 						results = append(results, albumResult(&album, true))
-						for _, song := range m.index.Songs[album.StartSongIdx:album.EndSongIdx] {
-							results = append(results, songResult(&album, &song))
+						for songIdx := album.StartSongIdx; songIdx < album.EndSongIdx; songIdx++ {
+							results = append(results, m.songResult(&album, songIdx))
 						}
 					}
 					return &ListMusicRes{Results: results}, nil
 				}
 			}
 		}
-	} else if searchType == "folders" {
-		return m.listMusicFolder(path, pageToken)
 	} else if searchType == "albums" {
 		if len(path) == 0 {
 			results := make([]Result, 0, len(m.index.Albums))
@@ -217,8 +184,8 @@ func (m *MusicServer) ListMusic(r *http.Request) (*ListMusicRes, error) {
 			for _, album := range m.index.Albums {
 				if album.Name == path {
 					results = append(results, albumResult(&album, true))
-					for _, song := range m.index.Songs[album.StartSongIdx:album.EndSongIdx] {
-						results = append(results, songResult(&album, &song))
+					for songIdx := album.StartSongIdx; songIdx < album.EndSongIdx; songIdx++ {
+						results = append(results, m.songResult(&album, songIdx))
 					}
 					return &ListMusicRes{Results: results}, nil
 				}
@@ -227,8 +194,8 @@ func (m *MusicServer) ListMusic(r *http.Request) (*ListMusicRes, error) {
 	} else if searchType == "songs" {
 		results := make([]Result, 0, len(m.index.Songs))
 		for _, album := range m.index.Albums {
-			for _, song := range m.index.Songs[album.StartSongIdx:album.EndSongIdx] {
-				results = append(results, songResult(&album, &song))
+			for songIdx := album.StartSongIdx; songIdx < album.EndSongIdx; songIdx++ {
+				results = append(results, m.songResult(&album, songIdx))
 			}
 		}
 		return &ListMusicRes{Results: results}, nil
@@ -236,65 +203,152 @@ func (m *MusicServer) ListMusic(r *http.Request) (*ListMusicRes, error) {
 	return nil, NewHttpError(errors.New("bad request"), 400)
 }
 
+type SonosState struct {
+	Track, Artist, Album string
+	Position, Duration   string
+	AlbumArtURI          string
+	Playing              bool
+	Volume               int
+}
+
+type ListSonosRes struct {
+	Rooms []string    `json:",omitempty"`
+	Sonos *SonosState `json:",omitempty"`
+}
+
+type AlbumMeta struct {
+	Item []AlbumMetaItem `xml:"item"`
+}
+
+type AlbumMetaItem struct {
+	Title        string   `xml:"http://purl.org/dc/elements/1.1/ title,omitempty"`
+	Artist       string   `xml:"http://purl.org/dc/elements/1.1/ creator,omitempty"`
+	Albums       []string `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ album,omitempty"`
+	AlbumArtURIs []string `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ albumArtURI,omitempty"`
+}
+
+type PlayRequest struct {
+	SongIDs []int
+	Volume  *int
+}
+
+func (m *MusicServer) ListSonos(req *http.Request) (*ListSonosRes, error) {
+	sonosName, action, _ := strings.Cut(strings.TrimPrefix(req.URL.Path, "/api/sonos/"), "/")
+	m.sonos.ZonePlayersMu.Lock()
+	defer m.sonos.ZonePlayersMu.Unlock()
+	if len(sonosName) > 0 {
+		for _, zp := range m.sonos.ZonePlayers {
+			if zp.RoomName() == sonosName {
+				if action == "POST" {
+					var playReq PlayRequest
+					if err := json.NewDecoder(req.Body).Decode(&playReq); err != nil {
+						return nil, NewHttpError(err, 400)
+					}
+					if playReq.Volume != nil && *playReq.Volume >= 0 && *playReq.Volume <= 100 {
+						if err := zp.SetVolume(*playReq.Volume); err != nil {
+							return nil, err
+						}
+					}
+					if len(playReq.SongIDs) > 0 {
+						if _, err := zp.AVTransport.SetAVTransportURI(zp.HttpClient, &avtransport.SetAVTransportURIArgs{
+							InstanceID: 0, CurrentURI: m.internalAddr + "/content" + m.index.Songs[playReq.SongIDs[0]].Path,
+						}); err != nil {
+							return nil, err
+						}
+					}
+					return &ListSonosRes{}, nil
+					switch action {
+					case "music":
+						// OMG IT FUCKING WORKS!!!!!
+						uri := strings.ReplaceAll("http://192.168.1.205:3000/content/Air Traffic/Fractured Life/02 Charlotte.m4a", " ", "%20")
+						res, err := zp.AVTransport.SetAVTransportURI(zp.HttpClient, &avtransport.SetAVTransportURIArgs{InstanceID: 0, CurrentURI: uri})
+						if err != nil {
+							return nil, err
+						}
+						return &ListSonosRes{Rooms: []string{fmt.Sprintf("%v", res)}}, nil
+					case "volume":
+						zp.SetVolume(20)
+					default:
+						return nil, NewHttpError(fmt.Errorf("bad request"), 400)
+					}
+				} else if req.Method == "GET" {
+					res, err := zp.AVTransport.GetPositionInfo(http.DefaultClient, &avtransport.GetPositionInfoArgs{InstanceID: 0})
+					if err != nil {
+						return nil, err
+					}
+					var artist, album, title, albumArtUri string
+					if len(res.TrackMetaData) > 0 {
+						var albumMeta AlbumMeta
+						if err := xml.Unmarshal([]byte(res.TrackMetaData), &albumMeta); err != nil {
+							return nil, err
+						}
+						if len(albumMeta.Item) > 0 {
+							artist, title = albumMeta.Item[0].Artist, albumMeta.Item[0].Title
+							if len(albumMeta.Item[0].Albums) > 0 {
+								album = albumMeta.Item[0].Albums[0]
+							}
+							if len(albumMeta.Item[0].AlbumArtURIs) > 0 {
+								albumArtUri = albumMeta.Item[0].AlbumArtURIs[0]
+							}
+						}
+					}
+					vol, err := zp.GetVolume()
+					if err != nil {
+						return nil, err
+					}
+					tres, err := zp.AVTransport.GetTransportInfo(http.DefaultClient, &avtransport.GetTransportInfoArgs{InstanceID: 0})
+					if err != nil {
+						return nil, err
+					}
+					return &ListSonosRes{
+						Sonos: &SonosState{Artist: artist, Album: album, Track: title, Position: res.RelTime, AlbumArtURI: albumArtUri, Duration: res.TrackDuration, Volume: vol, Playing: tres.CurrentTransportState == "PLAYING"},
+					}, nil
+				}
+			}
+		}
+		return nil, NewHttpError(fmt.Errorf("not found"), 404)
+	} else if req.Method == "GET" {
+		rooms := make([]string, 0, len(m.sonos.ZonePlayers))
+		for _, zp := range m.sonos.ZonePlayers {
+			rooms = append(rooms, zp.RoomName())
+		}
+		return &ListSonosRes{Rooms: rooms}, nil
+	}
+	return nil, NewHttpError(fmt.Errorf("bad method"), 400)
+}
+
+func intercept(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, r)
+	})
+}
+
 func main() {
-	// clients, errs, err := av1.NewAVTransport1Clients()
-	// if err != nil {
-	// 	log.Println(err.Error())
-	// }
-	// for _, err := range errs {
-	// 	if err != nil {
-	// 		log.Println(err.Error())
-	// 	}
-	// }
-	// for _, client := range clients {
-	// 	friendlyName := client.RootDevice.Device.FriendlyName
-	// 	for _, device := range client.RootDevice.Device.Devices {
-	// 		if device.DeviceType == "urn:schemas-upnp-org:device:MediaRenderer:1" && len(device.FriendlyName) > 0 {
-	// 			friendlyName, _, _ = strings.Cut(device.FriendlyName, "-")
-	// 			friendlyName = strings.TrimSpace(friendlyName)
-	// 		}
-	// 	}
-	// 	log.Println(friendlyName)
-	// 	CurrentTransportState, CurrentTransportStatus, CurrentSpeed, err := client.GetTransportInfo(0)
-	// 	if err != nil {
-	// 		log.Println(err.Error())
-	// 	} else {
-	// 		log.Printf("%s: l=%s cts=%s cs=%s", client.Location.String(), CurrentTransportState, CurrentTransportStatus, CurrentSpeed)
-	// 	}
-	// 	NrTracks, MediaDuration, CurrentURI, CurrentURIMetaData, NextURI, NextURIMetaData, PlayMedium, RecordMedium, WriteStatus, err := client.GetMediaInfo(0)
-	// 	if err != nil {
-	// 		log.Println(err.Error())
-	// 	} else {
-	// 		log.Printf("%s: nt=%d md=%s curi=%s curim=%s nuri=%s nurim=%s pm=%s rm=%s ws=%s", client.Location.String(), NrTracks, MediaDuration, CurrentURI, CurrentURIMetaData, NextURI, NextURIMetaData, PlayMedium, RecordMedium, WriteStatus)
-	// 	}
-	// 	Track, TrackDuration, TrackMetaData, TrackURI, RelTime, AbsTime, RelCount, AbsCount, err := client.GetPositionInfo(0)
-	// 	if err != nil {
-	// 		log.Println(err.Error())
-	// 	} else {
-	// 		// tmd=<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"><item id="-1" parentID="-1"><res duration="0:05:22"></res><upnp:albumArtURI>http://192.168.1.175:1400/getaa?v=0&amp;vli=1&amp;u=3646428523</upnp:albumArtURI><upnp:class>object.item.audioItem.musicTrack</upnp:class><dc:title>Sleepy Seven</dc:title><dc:creator>Bonobo</dc:creator><upnp:album>Animal Magic</upnp:album><upnp:originalTrackNumber>2</upnp:originalTrackNumber><r:tiid>3519114275655283735</r:tiid></item></DIDL-Lite>
-	// 		log.Printf("t=%d td=%s tmd=%s turi=%s rt=%s at=%s rc=%d ac=%d", Track, TrackDuration, TrackMetaData, TrackURI, RelTime, AbsTime, RelCount, AbsCount)
-	// 	}
-	// 	Actions, err := client.GetCurrentTransportActions(0)
-	// 	if err != nil {
-	// 		log.Println(err.Error())
-	// 	} else {
-	// 		log.Println("ac=" + Actions)
-	// 	}
-	// 	if friendlyName == "Office" {
-	// 		client.Pause(0)
-	// 		time.Sleep(2 * time.Second)
-	// 		client.Play(0, "1")
-	// 	}
-	// }
 	flag.Parse()
 
-	log.Println("music server 🎵 serving music from " + *sourceFolder)
-	ms := MusicServer{}
-	http.HandleFunc("/api/music/", WrapApi("GET", ms.ListMusic))
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		log.Fatal(err)
+	}
+	var internalAddr string
+	for _, addr := range addrs {
+		addrStr, _, _ := strings.Cut(addr.String(), "/")
+		if strings.HasPrefix(addrStr, "192.") {
+			internalAddr = "http://" + addrStr + ":3000"
+			break
+		}
+	}
 
-	http.Handle("/content/", http.StripPrefix("/content/", http.FileServer(&NoListFs{base: http.Dir(*sourceFolder)})))
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(&NoListFs{base: http.Dir("static/")})))
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { http.ServeFile(w, r, "index.html") })
+	log.Println("music server 🎵 serving music from " + *sourceFolder + " at " + internalAddr)
+	ms := MusicServer{}
+	ms.sonos = music.NewSonos()
+	ms.internalAddr = internalAddr
+
+	http.HandleFunc("/api/music/", WrapApi(ms.ListMusic))
+	http.HandleFunc("/api/sonos/", WrapApi(ms.ListSonos))
+
+	http.Handle("/content/", intercept(http.StripPrefix("/content/", http.FileServer(&NoListFs{base: http.Dir(*sourceFolder)}))))
+	static.ServeHTML()
 
 	go ms.index.Scan(*sourceFolder)
 	log.Println("listening on :3000")

@@ -3,12 +3,22 @@
 github.com/dhowden/tag
 # github.com/huin/goupnp v1.0.3
 ## explicit; go 1.14
-github.com/huin/goupnp
-github.com/huin/goupnp/dcps/av1
-github.com/huin/goupnp/httpu
-github.com/huin/goupnp/scpd
-github.com/huin/goupnp/soap
-github.com/huin/goupnp/ssdp
+# github.com/szatmary/sonos v0.0.0-20191204204454-000c9219ff0e
+## explicit
+github.com/szatmary/sonos
+github.com/szatmary/sonos/AVTransport
+github.com/szatmary/sonos/AlarmClock
+github.com/szatmary/sonos/ConnectionManager
+github.com/szatmary/sonos/ContentDirectory
+github.com/szatmary/sonos/DeviceProperties
+github.com/szatmary/sonos/GroupManagement
+github.com/szatmary/sonos/GroupRenderingControl
+github.com/szatmary/sonos/MusicServices
+github.com/szatmary/sonos/QPlay
+github.com/szatmary/sonos/Queue
+github.com/szatmary/sonos/RenderingControl
+github.com/szatmary/sonos/SystemProperties
+github.com/szatmary/sonos/VirtualLineIn
+github.com/szatmary/sonos/ZoneGroupTopology
 # golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 ## explicit
-golang.org/x/sync/errgroup

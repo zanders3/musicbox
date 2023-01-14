@@ -10,7 +10,7 @@
   var enable_volume_update = true;
   var unmute_volume = audio.volume;
   audio.onplay = function() {
-    el("player-play").innerHTML = `<i class="material-icons">pause_arrow</i>`;
+    el("player-play").innerHTML = `<i class="material-icons">pause</i>`;
     is_playing = true;
   };
   audio.onpause = function() {
@@ -73,7 +73,7 @@
     audio.load();
     audio.play();
     el("player-info").innerHTML = `<a href="#artists/${song.Artist}">${song.Artist}</a><br/><a href="#albums/${song.Album}">${song.Album}</a><br/>${song.Name}`;
-    el("player-albumcover").innerHTML = song.Image.length > 0 ? `<img src="${song.Image}">` : ``;
+    el("player-albumcover").innerHTML = song.Image.length > 0 ? `<img class="easeload" onload="this.style.opacity=1" src="${song.Image}">` : ``;
     if ("mediaSession" in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: song.Name,
@@ -105,6 +105,7 @@
     if (prevApi == "" && api == "" && window.innerWidth > 750) {
       api = "albums";
     }
+    el("results").innerHTML = "";
     var req = new XMLHttpRequest();
     req.open("GET", "/api/music/" + api);
     req.onload = function() {
@@ -115,7 +116,7 @@
         for (let result of res.Results) {
           html += `<div class="album"><a href="#${result.Link}">`;
           if (result.Image.length > 0) {
-            html += `<img class="albumbox" loading="lazy" src="/content/${result.Image}" />`;
+            html += `<div class="albumbox"><img class="albumbox easeload" onload="this.style.opacity=1" loading="lazy" src="/content${result.Image}" /></div>`;
           } else {
             html += `<div class="albumbox"></div>`;
           }
@@ -133,7 +134,7 @@
           } else if (result.Type == "AlbumHeader") {
             html += `<div class="albumheader ${first ? "" : "albumheaderpad"}"><div>`;
             if (result.Image.length > 0) {
-              html += `<img class="albumbox" loading="lazy" src="/content/${result.Image}" />`;
+              html += `<div class="albumbox"><img class="albumbox easeload" onload="this.style.opacity=1" loading="lazy" src="/content${result.Image}" /></div>`;
             } else {
               html += `<div class="albumbox"></div>`;
             }
@@ -153,10 +154,6 @@
         }
       }
       el("results").innerHTML = html;
-      function nexttrack2() {
-      }
-      function prevtrack2() {
-      }
       for (let node of document.querySelectorAll(".play")) {
         let idx = parseInt(node.dataset.idx);
         node.onclick = function() {
@@ -179,7 +176,6 @@
       prevApi = api;
     };
     req.send();
-    el("results").innerHTML = "";
   }
   window.onhashchange = function() {
     getmusic(window.location.hash.slice(1));

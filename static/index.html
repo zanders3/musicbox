@@ -6,22 +6,20 @@
     <title>Music</title>
     <meta name="description" content="Control your music via sonos">
     <link rel="canonical" href="https://music.home" />
-    <link rel="stylesheet" href="/static/layout.css" type="text/css" />
-    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="layout.css" type="text/css" />
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
     <meta name="theme-color" content="#2E3842" />
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
 </head>
 
-<body>
-    <div class="bgimage"></div>
+<body style="display: none;">
     <div class="topbar">
-        <a href="/#"><img src="/static/icon.png" />
+        <a href="/#"><img src="icon.png" />
             <div class="title">Music</div>
         </a>
         <span id="topbarlinks">
-            <a class="link" href="#folders"><i class="material-icons">folder</i> Folders</a>
             <a class="link" href="#songs"><i class="material-icons">music_note</i> Songs</a>
             <a class="link" href="#albums"><i class="material-icons">album</i> Albums</a>
             <a class="link" href="#artists"><i class="material-icons">person</i> Artists</a>
@@ -58,7 +56,7 @@
             <input id="player-volume" type="range" min="0" max="100" value="100" />
         </div>
     </div>
-    <script src="/static/music.js"></script>
+    <script src="music.js" async="true"></script>
 </body>
 
 </html>

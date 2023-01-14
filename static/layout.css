@@ -413,7 +413,6 @@ td {
     height: 64px;
     border: 2px solid #C8CFDB;
     background-color: #2E3842;
-    font-size: 20px;
     cursor: pointer;
     color: #C8CFDB;
     margin: 4px;
@@ -421,7 +420,6 @@ td {
 
 .player button i {
     font-size: 40px;
-    width: 40px;
 }
 
 .player button:hover {
@@ -550,6 +548,11 @@ td {
     text-decoration: none;
 }
 
+.easeload {
+    opacity: 0;
+    transition: opacity 0.5s ease;
+}
+
 @media only screen and (max-width: 1200px) {
     #player-right {
         flex-grow: 0;
@@ -595,4 +598,8 @@ td {
     #player-left {
         width: inherit;
     }
+}
+
+body {
+    display: block !important;
 }
