@@ -11,6 +11,6 @@ import (
 //go:embed *
 var content embed.FS
 
-func ServeHTML() {
+func ServeHTML(mux *http.ServeMux) {
 	http.HandleFunc("/", http.FileServer(http.FS(content)))
 }

@@ -5,6 +5,6 @@ package static
 
 import "net/http"
 
-func ServeHTML() {
-	http.Handle("/", http.FileServer(http.Dir("static/")))
+func ServeHTML(mux *http.ServeMux) {
+	mux.Handle("/", http.FileServer(http.Dir("static/")))
 }

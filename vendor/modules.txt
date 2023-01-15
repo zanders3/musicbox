@@ -1,8 +1,6 @@
 # github.com/dhowden/tag v0.0.0-20220618230019-adf36e896086
 ## explicit; go 1.18
 github.com/dhowden/tag
-# github.com/huin/goupnp v1.0.3
-## explicit; go 1.14
 # github.com/szatmary/sonos v0.0.0-20191204204454-000c9219ff0e
 ## explicit
 github.com/szatmary/sonos
@@ -20,5 +18,3 @@ github.com/szatmary/sonos/RenderingControl
 github.com/szatmary/sonos/SystemProperties
 github.com/szatmary/sonos/VirtualLineIn
 github.com/szatmary/sonos/ZoneGroupTopology
-# golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-## explicit
