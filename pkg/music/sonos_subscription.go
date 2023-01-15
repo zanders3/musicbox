@@ -27,14 +27,26 @@ type Result struct {
 
 const Lifetime = 20 * time.Second
 
+type subscription struct {
+	maxId          int
+	callbacks      []subscriptionCallback
+	shutdown       chan struct{}
+	sid, lastEvent string
+}
+
+type subscriptionCallback struct {
+	id       int
+	gotEvent func(e string)
+}
+
 type Subscriptions struct {
 	internalIpAddr string
-	subs           map[string]func(e string)
+	subs           map[string]*subscription
 	subsMu         sync.Mutex
 }
 
 func ListenForSubscriptionEvents(internalIpAddr string) *Subscriptions {
-	s := &Subscriptions{subs: make(map[string]func(e string)), internalIpAddr: internalIpAddr}
+	s := &Subscriptions{subs: make(map[string]*subscription), internalIpAddr: internalIpAddr}
 	go func() {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -52,9 +64,17 @@ func ListenForSubscriptionEvents(internalIpAddr string) *Subscriptions {
 			}
 			sid := r.Header.Get("SID")
 			if len(d.Properties) > 0 {
-				if sub, ok := s.subs[sid]; ok {
-					sub(d.Properties[0].Result.Value)
+				s.subsMu.Lock()
+				for _, sub := range s.subs {
+					if sub.sid == sid {
+						sub.lastEvent = d.Properties[0].Result.Value
+						for _, cb := range sub.callbacks {
+							cb.gotEvent(sub.lastEvent)
+						}
+						break
+					}
 				}
+				s.subsMu.Unlock()
 			}
 		})
 		if err := http.ListenAndServe(internalIpAddr+":3001", mux); err != nil {
@@ -94,44 +114,87 @@ func sendSubscribeRequest(eventUrl *url.URL, internalIpAddr string, sid string) 
 }
 
 func (s *Subscriptions) Subscribe(eventUrl *url.URL, unsubscribe chan struct{}, gotEvent func(e string)) {
-	go func() {
-		var sid string
-		for {
-			log.Printf("subscribing %s with sid=%s", eventUrl.String(), sid)
-			var err error
-			var timeout time.Duration
-			sid, timeout, err = sendSubscribeRequest(eventUrl, s.internalIpAddr, sid)
-			if err != nil {
-				log.Printf("subscribe to %s failed: %s", eventUrl.String(), err.Error())
-				return
-			}
-			log.Printf("%s subscribe succeeded with sid %s and timeout %s", eventUrl.String(), sid, timeout.String())
-			s.subsMu.Lock()
-			s.subs[sid] = gotEvent
-			s.subsMu.Unlock()
+	s.subsMu.Lock()
+	sub, ok := s.subs[eventUrl.String()]
+	var cbid int
+	var lastEvent string
+	if ok {
+		sub.maxId++
+		cbid = sub.maxId
+		sub.callbacks = append(sub.callbacks, subscriptionCallback{id: sub.maxId, gotEvent: gotEvent})
+		lastEvent = sub.lastEvent
+	} else {
+		cbid = 1
+		sub = &subscription{
+			callbacks: []subscriptionCallback{{id: 1, gotEvent: gotEvent}},
+			shutdown:  make(chan struct{}),
+			maxId:     1,
+		}
+		s.subs[eventUrl.String()] = sub
 
-			select {
-			case <-time.After(timeout - 4*time.Second):
-			case <-unsubscribe:
-				log.Printf("unsubscribing %s", eventUrl.String())
-				req, err := http.NewRequest("UNSUBSCRIBE", eventUrl.String(), http.NoBody)
+		go func() {
+			var sid string
+			for {
+				log.Printf("subscribing %s with sid=%s", eventUrl.String(), sid)
+				var err error
+				var timeout time.Duration
+				sid, timeout, err = sendSubscribeRequest(eventUrl, s.internalIpAddr, sid)
 				if err != nil {
-					log.Println(err.Error())
+					log.Printf("subscribe to %s failed: %s", eventUrl.String(), err.Error())
 					return
 				}
-				req.Header.Set("SID", sid)
-				res, err := http.DefaultClient.Do(req)
-				if err != nil {
-					log.Printf("failed to unsub %s: %s", eventUrl.String(), err.Error())
+				log.Printf("%s subscribe succeeded with sid %s and timeout %s", eventUrl.String(), sid, timeout.String())
+				s.subsMu.Lock()
+				s.subs[eventUrl.String()].sid = sid
+				s.subsMu.Unlock()
+
+				select {
+				case <-time.After(timeout - 4*time.Second):
+				case <-unsubscribe:
+					log.Printf("unsubscribing %s", eventUrl.String())
+					req, err := http.NewRequest("UNSUBSCRIBE", eventUrl.String(), http.NoBody)
+					if err != nil {
+						log.Println(err.Error())
+						return
+					}
+					req.Header.Set("SID", sid)
+					res, err := http.DefaultClient.Do(req)
+					if err != nil {
+						log.Printf("failed to unsub %s: %s", eventUrl.String(), err.Error())
+						return
+					}
+					if res.StatusCode != 200 {
+						log.Printf("failed to unsub %s", eventUrl.String())
+						return
+					}
+					log.Printf("unsubscribed ok!")
 					return
 				}
-				if res.StatusCode != 200 {
-					log.Printf("failed to unsub %s: %s", eventUrl.String(), err.Error())
-					return
+			}
+		}()
+	}
+	s.subsMu.Unlock()
+	if len(lastEvent) > 0 {
+		gotEvent(lastEvent)
+	}
+	go func(cbid int) {
+		<-unsubscribe
+		s.subsMu.Lock()
+		defer s.subsMu.Unlock()
+		if sub, ok := s.subs[eventUrl.String()]; ok {
+			newCbs := make([]subscriptionCallback, 0)
+			for _, cb := range sub.callbacks {
+				if cb.id == cbid {
+					continue
+				} else {
+					newCbs = append(newCbs, cb)
 				}
-				log.Printf("unsubscribed ok!")
-				return
+			}
+			sub.callbacks = newCbs
+			if len(sub.callbacks) == 0 {
+				close(sub.shutdown)
+				delete(s.subs, eventUrl.String())
 			}
 		}
-	}()
+	}(cbid)
 }

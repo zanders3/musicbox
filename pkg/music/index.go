@@ -53,6 +53,8 @@ type MusicIndex struct {
 	Artists []Artist
 	Songs   []Song
 	Albums  []Album
+
+	AlbumIdByName map[string]int
 }
 
 func scanFolder(songs []Song, rootFolder, folder string) ([]Song, error) {
@@ -207,8 +209,13 @@ func (mi *MusicIndex) Scan(folder string) {
 	}
 	log.Printf("found %d artists %d albums %d album art", len(artists), len(albums), numAlbumArt)
 
+	albumIdByName := make(map[string]int, len(albums))
+	for idx, album := range albums {
+		albumIdByName[album.Name] = idx
+	}
+
 	mi.SongsMu.Lock()
-	mi.Songs, mi.Albums, mi.Artists = songs, albums, artists
+	mi.Songs, mi.Albums, mi.Artists, mi.AlbumIdByName = songs, albums, artists, albumIdByName
 	mi.SongsMu.Unlock()
 
 	alreadyProcessedAlbums := make(map[string]string)

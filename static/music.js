@@ -63,12 +63,30 @@
       playlistIdx++;
       playsong();
     }
+    if (sonosRoom.length > 0) {
+      sonoscommand({ Action: "Next" });
+    }
   }
   function prevtrack() {
     if (playlistIdx > 0 && sonosRoom.length == 0) {
       playlistIdx--;
       playsong();
     }
+    if (sonosRoom.length > 0) {
+      sonoscommand({ Action: "Prev" });
+    }
+  }
+  function sonoscommand(actionReq) {
+    var req = new XMLHttpRequest();
+    req.open("POST", "/api/sonos/" + sonosRoom + "/action");
+    req.onload = function() {
+      console.log(req.response);
+    };
+    let songIds = [];
+    for (let idx = playlistIdx; idx < playlist.length; idx++) {
+      songIds.push(playlist[idx].SongId);
+    }
+    req.send(JSON.stringify(actionReq));
   }
   function playsong() {
     if (playlistIdx < 0 || playlist.length == 0 || playlistIdx >= playlist.length) {
@@ -106,16 +124,11 @@
       }
     } else {
       audio.pause();
-      var req = new XMLHttpRequest();
-      req.open("POST", "/api/sonos/" + sonosRoom + "/play");
-      req.onload = function() {
-        console.log(req.response);
-      };
       let songIds = [];
       for (let idx = playlistIdx; idx < playlist.length; idx++) {
         songIds.push(playlist[idx].SongId);
       }
-      req.send(JSON.stringify({ SongIDs: songIds }));
+      sonoscommand({ SongIDs: songIds });
     }
   }
   var prevApi = "";
@@ -208,8 +221,24 @@
     return html;
   }
   var evts = null;
+  var sonosTimeSecs = 0;
+  var sonosTickId = 0;
+  function tickSonosTime() {
+    if (sonosRoom.length == 0 || !is_playing) {
+      clearInterval(sonosTickId);
+      return;
+    }
+    el("player-curtime").innerText = formatTime(sonosTimeSecs);
+    if (enable_range_update) {
+      el("player-range").value = sonosTimeSecs.toString();
+    }
+    sonosTimeSecs++;
+  }
   window.setspeaker = function(elem) {
-    sonosRoom = elem.dataset.room;
+    setspeaker(elem.dataset.room);
+  };
+  function setspeaker(room) {
+    sonosRoom = room;
     console.log("set " + sonosRoom);
     el("sonos-list").innerHTML = sonosroomhtml();
     el("player-speakers").innerHTML = `<span class="valign-wrapper"><i class=" material-icons ${sonosRoom.length > 0 ? "selected" : ""}">speaker</i>${sonosRoom}</span>`;
@@ -218,42 +247,51 @@
       evts.close();
     }
     if (sonosRoom.length > 0) {
+      el("player-right").classList.remove("player-right-volume");
       evts = new EventSource("/api/sonos/" + sonosRoom + "/events");
       evts.onmessage = (event) => {
         let res = JSON.parse(event.data);
         console.log(res);
-        if (res.Sonos.Album) {
+        if (res.Sonos.Track) {
+          is_playing = res.Sonos.Playing;
           el("player-play").innerHTML = res.Sonos.Playing ? `<i class="material-icons">pause</i>` : `<i class="material-icons">play_arrow</i>`;
-          el("player-curtime").innerText = res.Sonos.Position;
-          el("player-endtime").innerText = res.Sonos.Duration;
-          let range = el("player-range");
-          range.max = parseTime(res.Sonos.Duration).toString();
-          range.value = parseTime(res.Sonos.Position).toString();
-          el("player-info").innerHTML = `<a href="#artists/${res.Sonos.Artist}">${res.Sonos.Artist}</a><br/><a href="#albums/${res.Sonos.Album}">${res.Sonos.Album}</a><br/>${res.Sonos.Track}`;
-          let newArt = el("player-albumcover").innerHTML = res.Sonos.AlbumArtURI ? `<img class="easeload" onload="this.style.opacity=1" src="${res.Sonos.AlbumArtURI}">` : ``;
+          el("player-endtime").innerText = formatTime(parseTime(res.Sonos.Duration));
+          el("player-range").max = parseTime(res.Sonos.Duration).toString();
+          sonosTimeSecs = parseTime(res.Sonos.Position);
+          tickSonosTime();
+          if (is_playing) {
+            clearInterval(sonosTickId);
+            sonosTickId = setInterval(tickSonosTime, 1e3);
+          }
+          el("player-info").innerHTML = `<a href="#artists/${res.Sonos.Artist ?? ""}">${res.Sonos.Artist ?? ""}</a><br/><a href="#albums/${res.Sonos.Album ?? ""}">${res.Sonos.Album ?? ""}</a><br/>${res.Sonos.Track ?? ""}`;
+          let newArt = res.Sonos.AlbumArtURI ? `<img class="easeload" onload="this.style.opacity=1" src="${res.Sonos.AlbumArtURI}">` : ``;
           if (el("player-albumcover").innerHTML != newArt) {
             el("player-albumcover").innerHTML = newArt;
           }
-          if ("mediaSession" in navigator) {
-            navigator.mediaSession.metadata = new MediaMetadata({
-              title: res.Sonos.Track,
-              artist: res.Sonos.Artist,
-              album: res.Sonos.Album,
-              artwork: [{ src: res.Sonos.AlbumArtURI ?? "" }]
-            });
-          }
         }
-        if (res.Sonos.Volume) {
+        if (res.Sonos.Volume && enable_volume_update) {
           el("player-volume").value = res.Sonos.Volume.toString();
         }
       };
+      evts.onerror = () => {
+        console.log("connection lost");
+        setspeaker("");
+      };
+    } else {
+      el("player-right").classList.add("player-right-volume");
+      el("player-albumcover").innerHTML = "";
+      el("player-info").innerHTML = "";
+      el("player-range").max = "1";
+      el("player-range").value = "0";
+      el("player-endtime").innerText = "0:00";
+      el("player-curtime").innerText = "0:00";
     }
-  };
+  }
   function refreshsonos() {
     var req = new XMLHttpRequest();
     req.open("GET", "/api/sonos");
     req.onload = function() {
-      sonosRooms = JSON.parse(req.response).Rooms;
+      sonosRooms = JSON.parse(req.response).Rooms ?? [];
       el("sonos-list").innerHTML = sonosroomhtml();
       el("player-speakers").onclick = (e) => {
         let style = el("sonos-list").style;
@@ -278,9 +316,17 @@
     refreshsonos();
     el("player-play").onclick = function() {
       if (is_playing) {
-        audio.pause();
+        if (sonosRoom.length > 0) {
+          sonoscommand({ Action: "Pause" });
+        } else {
+          audio.pause();
+        }
       } else {
-        audio.play();
+        if (sonosRoom.length > 0) {
+          sonoscommand({ Action: "Play" });
+        } else {
+          audio.play();
+        }
       }
     };
     el("player-range").onmousedown = function() {
@@ -310,7 +356,11 @@
     };
     el("player-volume").oninput = function() {
       enable_volume_update = true;
-      audio.volume = parseFloat(el("player-volume").value) / 100;
+      let volume = parseFloat(el("player-volume").value);
+      audio.volume = volume / 100;
+      if (sonosRoom.length > 0) {
+        sonoscommand({ Volume: volume });
+      }
     };
     el("player-prev").onclick = function() {
       prevtrack();

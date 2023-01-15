@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -221,13 +222,36 @@ type ListSonosRes struct {
 	Sonos *SonosState `json:",omitempty"`
 }
 
-type PlayRequest struct {
+type ActionRequest struct {
 	SongIDs []int
 	Volume  *int
+	Action  string // Play, Pause, Next, Prev
 }
 
 func (m *MusicServer) toSonosSongUri(songId int) string {
 	return m.internalAddr + "/content" + strings.ReplaceAll(m.index.Songs[songId].Path, " ", "%20")
+}
+
+func (m *MusicServer) toSonosSongMetadata(songId int) string {
+	songUri := m.toSonosSongUri(songId)
+	song := m.index.Songs[songId]
+	var albumArtUri string
+	if album, ok := m.index.AlbumIdByName[song.Album]; ok && len(m.index.Albums[album].AlbumArtPath) > 0 {
+		albumArtUri = m.internalAddr + "/content" + strings.ReplaceAll(m.index.Albums[album].AlbumArtPath, " ", "%20")
+	}
+	songExt := path.Ext(songUri)
+	s := fmt.Sprintf("<DIDL-Lite xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\" xmlns:r=\"urn:schemas-rinconnetworks-com:metadata-1-0/\" xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\"><item id=\"-1\" parentID=\"-1\" restricted=\"true\"><res protocolInfo=\"http-get:*:audio/%s:*\" duration=\"0:04:47\">%s</res><r:streamContent></r:streamContent><r:radioShowMd></r:radioShowMd><r:streamInfo>bd:16,sr:44100,c:3,l:0,d:0</r:streamInfo><dc:title>%s</dc:title><upnp:class>object.item.audioItem.musicTrack</upnp:class><dc:creator>%s</dc:creator><upnp:album>%s</upnp:album><upnp:originalTrackNumber>4</upnp:originalTrackNumber><r:narrator>%s</r:narrator><r:albumArtist>%s</r:albumArtist><upnp:albumArtURI>%s</upnp:albumArtURI></item></DIDL-Lite>",
+		songExt,
+		songUri,
+		song.Title,
+		song.Artist,
+		song.Album,
+		song.Artist,
+		song.Artist,
+		albumArtUri,
+	)
+	log.Println(s)
+	return s
 }
 
 func (m *MusicServer) GetSonos(w http.ResponseWriter, zp *sonos.ZonePlayer, req *http.Request) {
@@ -248,7 +272,11 @@ func (m *MusicServer) GetSonos(w http.ResponseWriter, zp *sonos.ZonePlayer, req 
 		playing := ev.InstanceID.TransportState.Val == "PLAYING"
 		var albumArtURI string
 		if len(didl.Item.AlbumArtURI) > 0 {
-			albumArtURI = "http://" + zp.AVTransport.ControlEndpoint.Host + didl.Item.AlbumArtURI
+			if strings.HasPrefix(didl.Item.AlbumArtURI, "http://") {
+				albumArtURI = didl.Item.AlbumArtURI
+			} else {
+				albumArtURI = "http://" + zp.AVTransport.ControlEndpoint.Host + didl.Item.AlbumArtURI
+			}
 		}
 		resBytes, err := json.Marshal(&ListSonosRes{
 			Sonos: &SonosState{
@@ -310,28 +338,50 @@ func (m *MusicServer) ListSonos(w http.ResponseWriter, req *http.Request) {
 	if len(sonosName) > 0 {
 		for _, zp := range m.sonos.ZonePlayers {
 			if zp.RoomName() == sonosName {
-				if req.Method == "POST" && bit == "play" {
+				if req.Method == "POST" && bit == "action" {
 					WrapApi(func(req *http.Request) (*ListSonosRes, error) {
-						var playReq PlayRequest
-						if err := json.NewDecoder(req.Body).Decode(&playReq); err != nil {
+						var actionReq ActionRequest
+						if err := json.NewDecoder(req.Body).Decode(&actionReq); err != nil {
 							return nil, NewHttpError(err, 400)
 						}
-						if playReq.Volume != nil && *playReq.Volume >= 0 && *playReq.Volume <= 100 {
-							if err := zp.SetVolume(*playReq.Volume); err != nil {
+						if actionReq.Volume != nil && *actionReq.Volume >= 0 && *actionReq.Volume <= 100 {
+							if err := zp.SetVolume(*actionReq.Volume); err != nil {
 								return nil, err
 							}
 						}
-						if len(playReq.SongIDs) > 0 {
+						switch actionReq.Action {
+						case "Play":
+							if _, err := zp.AVTransport.Play(zp.HttpClient, &avtransport.PlayArgs{InstanceID: 0, Speed: "1"}); err != nil {
+								return nil, err
+							}
+						case "Pause":
+							if _, err := zp.AVTransport.Pause(zp.HttpClient, &avtransport.PauseArgs{InstanceID: 0}); err != nil {
+								return nil, err
+							}
+						case "Next":
+							if _, err := zp.AVTransport.Next(zp.HttpClient, &avtransport.NextArgs{InstanceID: 0}); err != nil {
+								return nil, err
+							}
+						case "Prev":
+							if _, err := zp.AVTransport.Previous(zp.HttpClient, &avtransport.PreviousArgs{InstanceID: 0}); err != nil {
+								return nil, err
+							}
+						}
+						if len(actionReq.SongIDs) > 0 {
 							if _, err := zp.AVTransport.RemoveAllTracksFromQueue(zp.HttpClient, &avtransport.RemoveAllTracksFromQueueArgs{InstanceID: 0}); err != nil {
 								return nil, err
 							}
-							if len(playReq.SongIDs) > 30 {
-								playReq.SongIDs = playReq.SongIDs[0:30]
+							if len(actionReq.SongIDs) > 30 {
+								actionReq.SongIDs = actionReq.SongIDs[0:30]
 							}
-							for _, songId := range playReq.SongIDs {
-								if _, err := zp.AVTransport.AddURIToQueue(zp.HttpClient, &avtransport.AddURIToQueueArgs{InstanceID: 0, EnqueuedURI: m.toSonosSongUri(songId)}); err != nil {
+							for _, songId := range actionReq.SongIDs {
+								if _, err := zp.AVTransport.AddURIToQueue(zp.HttpClient, &avtransport.AddURIToQueueArgs{InstanceID: 0, EnqueuedURI: m.toSonosSongUri(songId), EnqueuedURIMetaData: m.toSonosSongMetadata(songId)}); err != nil {
 									return nil, err
 								}
+							}
+							udn := strings.TrimPrefix(zp.Root.Device.UDN, "uuid:")
+							if _, err := zp.AVTransport.SetAVTransportURI(http.DefaultClient, &avtransport.SetAVTransportURIArgs{InstanceID: 0, CurrentURI: "x-rincon-queue:" + udn + "#0"}); err != nil {
+								return nil, err
 							}
 							if _, err := zp.AVTransport.Play(zp.HttpClient, &avtransport.PlayArgs{InstanceID: 0, Speed: "1"}); err != nil {
 								return nil, err

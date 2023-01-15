@@ -72,12 +72,36 @@ function nexttrack() {
         playlistIdx++;
         playsong();
     }
+    if (sonosRoom.length > 0) {
+        sonoscommand({ Action: "Next" });
+    }
 }
 function prevtrack() {
     if (playlistIdx > 0 && sonosRoom.length == 0) {
         playlistIdx--;
         playsong();
     }
+    if (sonosRoom.length > 0) {
+        sonoscommand({ Action: "Prev" });
+    }
+}
+type ActionReq = {
+    SongIDs?: number[]
+    Volume?: number,
+    Action?: "Play" | "Pause" | "Next" | "Prev"
+};
+
+function sonoscommand(actionReq: ActionReq) {
+    var req = new XMLHttpRequest();
+    req.open("POST", "/api/sonos/" + sonosRoom + "/action");
+    req.onload = function () {
+        console.log(req.response);
+    };
+    let songIds: number[] = [];
+    for (let idx = playlistIdx; idx < playlist.length; idx++) {
+        songIds.push(playlist[idx].SongId);
+    }
+    req.send(JSON.stringify(actionReq));
 }
 function playsong() {
     if (playlistIdx < 0 || playlist.length == 0 || playlistIdx >= playlist.length) {
@@ -105,17 +129,11 @@ function playsong() {
         }
     } else {
         audio.pause();
-
-        var req = new XMLHttpRequest();
-        req.open("POST", "/api/sonos/" + sonosRoom + "/play");
-        req.onload = function () {
-            console.log(req.response);
-        };
         let songIds: number[] = [];
         for (let idx = playlistIdx; idx < playlist.length; idx++) {
             songIds.push(playlist[idx].SongId);
         }
-        req.send(JSON.stringify({ SongIDs: songIds }));
+        sonoscommand({ SongIDs: songIds });
     }
 }
 
@@ -225,9 +243,25 @@ function sonosroomhtml(): string {
     return html;
 }
 let evts: EventSource | null = null;
+let sonosTimeSecs = 0;
+let sonosTickId = 0;
+function tickSonosTime() {
+    if (sonosRoom.length == 0 || !is_playing) {
+        clearInterval(sonosTickId);
+        return;
+    }
+    el("player-curtime").innerText = formatTime(sonosTimeSecs);
+    if (enable_range_update) {
+        (el("player-range") as HTMLInputElement).value = sonosTimeSecs.toString();
+    }
+    sonosTimeSecs++;
+}
 
 (window as any).setspeaker = function (elem) {
-    sonosRoom = (elem as HTMLElement).dataset.room as string;
+    setspeaker((elem as HTMLElement).dataset.room as string);
+};
+function setspeaker(room: string) {
+    sonosRoom = room;
     console.log("set " + sonosRoom);
     el("sonos-list").innerHTML = sonosroomhtml();
     el("player-speakers").innerHTML = `<span class="valign-wrapper"><i class=" material-icons ${sonosRoom.length > 0 ? 'selected' : ''}">speaker</i>${sonosRoom}</span>`;
@@ -237,39 +271,51 @@ let evts: EventSource | null = null;
         evts.close();
     }
     if (sonosRoom.length > 0) {
+        el("player-right").classList.remove("player-right-volume");
         evts = new EventSource("/api/sonos/" + sonosRoom + "/events");
         evts.onmessage = (event) => {
             let res = JSON.parse(event.data) as SonosResponse;
             console.log(res);
-            if (res.Sonos.Album) {
+            if (res.Sonos.Track) {
+                is_playing = res.Sonos.Playing;
                 el("player-play").innerHTML = res.Sonos.Playing ? `<i class="material-icons">pause</i>` : `<i class="material-icons">play_arrow</i>`;
-                el("player-curtime").innerText = res.Sonos.Position;
-                el("player-endtime").innerText = res.Sonos.Duration;
-                let range = el("player-range") as HTMLInputElement;
-                range.max = parseTime(res.Sonos.Duration).toString();
-                range.value = parseTime(res.Sonos.Position).toString();
-                el("player-info").innerHTML = `<a href="#artists/${res.Sonos.Artist}">${res.Sonos.Artist}</a><br/><a href="#albums/${res.Sonos.Album}">${res.Sonos.Album}</a><br/>${res.Sonos.Track}`;
-                let newArt = el("player-albumcover").innerHTML = res.Sonos.AlbumArtURI ? `<img class="easeload" onload="this.style.opacity=1" src="${res.Sonos.AlbumArtURI}">` : ``;
+                el("player-endtime").innerText = formatTime(parseTime(res.Sonos.Duration));
+                (el("player-range") as HTMLInputElement).max = parseTime(res.Sonos.Duration).toString();
+                sonosTimeSecs = parseTime(res.Sonos.Position);
+                tickSonosTime();
+                if (is_playing) {
+                    clearInterval(sonosTickId);
+                    sonosTickId = setInterval(tickSonosTime, 1000);
+                }
+                el("player-info").innerHTML = `<a href="#artists/${res.Sonos.Artist ?? ''}">${res.Sonos.Artist ?? ''}</a><br/><a href="#albums/${res.Sonos.Album ?? ''}">${res.Sonos.Album ?? ''}</a><br/>${res.Sonos.Track ?? ''}`;
+                let newArt = res.Sonos.AlbumArtURI ? `<img class="easeload" onload="this.style.opacity=1" src="${res.Sonos.AlbumArtURI}">` : ``;
                 if (el("player-albumcover").innerHTML != newArt) {
                     el("player-albumcover").innerHTML = newArt;
                 }
-                if ('mediaSession' in navigator) {
-                    navigator.mediaSession.metadata = new MediaMetadata({
-                        title: res.Sonos.Track, artist: res.Sonos.Artist, album: res.Sonos.Album, artwork: [{ src: res.Sonos.AlbumArtURI ?? "" }],
-                    });
-                }
             }
-            if (res.Sonos.Volume) {
+            if (res.Sonos.Volume && enable_volume_update) {
                 (el("player-volume") as HTMLInputElement).value = res.Sonos.Volume.toString();
             }
         };
+        evts.onerror = () => {
+            console.log("connection lost");
+            setspeaker("");
+        };
+    } else {
+        el("player-right").classList.add("player-right-volume");
+        el("player-albumcover").innerHTML = "";
+        el("player-info").innerHTML = "";
+        (el("player-range") as HTMLInputElement).max = "1";
+        (el("player-range") as HTMLInputElement).value = "0";
+        el("player-endtime").innerText = "0:00";
+        el("player-curtime").innerText = "0:00";
     }
 };
 function refreshsonos() {
     var req = new XMLHttpRequest();
     req.open("GET", "/api/sonos");
     req.onload = function () {
-        sonosRooms = (JSON.parse(req.response) as SonosResponse).Rooms;
+        sonosRooms = (JSON.parse(req.response) as SonosResponse).Rooms ?? [];
         el("sonos-list").innerHTML = sonosroomhtml();
         el("player-speakers").onclick = (e) => {
             let style = el("sonos-list").style;
@@ -295,9 +341,17 @@ window.onload = function () {
     refreshsonos();
     el("player-play").onclick = function () {
         if (is_playing) {
-            audio.pause();
+            if (sonosRoom.length > 0) {
+                sonoscommand({ Action: "Pause" });
+            } else {
+                audio.pause();
+            }
         } else {
-            audio.play();
+            if (sonosRoom.length > 0) {
+                sonoscommand({ Action: "Play" });
+            } else {
+                audio.play();
+            }
         }
     };
     el("player-range").onmousedown = function () {
@@ -327,7 +381,11 @@ window.onload = function () {
     };
     el("player-volume").oninput = function () {
         enable_volume_update = true;
-        audio.volume = parseFloat((el("player-volume") as HTMLInputElement).value) / 100;
+        let volume = parseFloat((el("player-volume") as HTMLInputElement).value);
+        audio.volume = volume / 100;
+        if (sonosRoom.length > 0) {
+            sonoscommand({ Volume: volume });
+        }
     };
     el("player-prev").onclick = function () {
         prevtrack();

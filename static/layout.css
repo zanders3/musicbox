@@ -648,8 +648,12 @@ body {
         flex-direction: column-reverse;
     }
 
-    #player-right {
-        display: none;
+    .player-right-volume {
+        display: none !important;
+    }
+
+    #player-volume {
+        width: 100%;
     }
 
     #player-left {
