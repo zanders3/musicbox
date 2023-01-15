@@ -32,6 +32,14 @@ function formatTime(time: number): string {
     }
     return mins + ":" + secs;
 }
+function parseTime(time: string): number {
+    // H:mm:ss
+    let bits = time.split(':');
+    if (bits.length != 3) {
+        return 1;
+    }
+    return (parseInt(bits[0]) * 60 * 60) + (parseInt(bits[1]) * 60) + parseInt(bits[2]);
+}
 audio.ontimeupdate = function () {
     if (enable_range_update) {
         el("player-curtime").innerText = formatTime(audio.currentTime);
@@ -60,13 +68,13 @@ let sonosRoom = "";
 let playlist: Result[] = [];
 let playlistIdx = 0;
 function nexttrack() {
-    if (playlistIdx < playlist.length) {
+    if (playlistIdx < playlist.length && sonosRoom.length == 0) {
         playlistIdx++;
         playsong();
     }
 }
 function prevtrack() {
-    if (playlistIdx > 0) {
+    if (playlistIdx > 0 && sonosRoom.length == 0) {
         playlistIdx--;
         playsong();
     }
@@ -99,7 +107,7 @@ function playsong() {
         audio.pause();
 
         var req = new XMLHttpRequest();
-        req.open("POST", "/api/sonos/" + sonosRoom);
+        req.open("POST", "/api/sonos/" + sonosRoom + "/play");
         req.onload = function () {
             console.log(req.response);
         };
@@ -195,7 +203,17 @@ function getmusic(api: string) {
 }
 
 type SonosResponse = {
-    Rooms: string[]
+    Rooms: string[],
+    Sonos: {
+        Album: string | undefined,
+        AlbumArtURI: string | undefined,
+        Artist: string,
+        Duration: string,
+        Playing: boolean,
+        Position: string,
+        Track: string,
+        Volume: number | undefined
+    },
 };
 
 let sonosRooms: string[] = [];
@@ -206,12 +224,46 @@ function sonosroomhtml(): string {
     }
     return html;
 }
+let evts: EventSource | null = null;
+
 (window as any).setspeaker = function (elem) {
     sonosRoom = (elem as HTMLElement).dataset.room as string;
     console.log("set " + sonosRoom);
     el("sonos-list").innerHTML = sonosroomhtml();
     el("player-speakers").innerHTML = `<span class="valign-wrapper"><i class=" material-icons ${sonosRoom.length > 0 ? 'selected' : ''}">speaker</i>${sonosRoom}</span>`;
     audio.pause();
+
+    if (evts != null) {
+        evts.close();
+    }
+    if (sonosRoom.length > 0) {
+        evts = new EventSource("/api/sonos/" + sonosRoom + "/events");
+        evts.onmessage = (event) => {
+            let res = JSON.parse(event.data) as SonosResponse;
+            console.log(res);
+            if (res.Sonos.Album) {
+                el("player-play").innerHTML = res.Sonos.Playing ? `<i class="material-icons">pause</i>` : `<i class="material-icons">play_arrow</i>`;
+                el("player-curtime").innerText = res.Sonos.Position;
+                el("player-endtime").innerText = res.Sonos.Duration;
+                let range = el("player-range") as HTMLInputElement;
+                range.max = parseTime(res.Sonos.Duration).toString();
+                range.value = parseTime(res.Sonos.Position).toString();
+                el("player-info").innerHTML = `<a href="#artists/${res.Sonos.Artist}">${res.Sonos.Artist}</a><br/><a href="#albums/${res.Sonos.Album}">${res.Sonos.Album}</a><br/>${res.Sonos.Track}`;
+                let newArt = el("player-albumcover").innerHTML = res.Sonos.AlbumArtURI ? `<img class="easeload" onload="this.style.opacity=1" src="${res.Sonos.AlbumArtURI}">` : ``;
+                if (el("player-albumcover").innerHTML != newArt) {
+                    el("player-albumcover").innerHTML = newArt;
+                }
+                if ('mediaSession' in navigator) {
+                    navigator.mediaSession.metadata = new MediaMetadata({
+                        title: res.Sonos.Track, artist: res.Sonos.Artist, album: res.Sonos.Album, artwork: [{ src: res.Sonos.AlbumArtURI ?? "" }],
+                    });
+                }
+            }
+            if (res.Sonos.Volume) {
+                (el("player-volume") as HTMLInputElement).value = res.Sonos.Volume.toString();
+            }
+        };
+    }
 };
 function refreshsonos() {
     var req = new XMLHttpRequest();

@@ -9,7 +9,7 @@ import (
 
 type Sonos struct {
 	ZonePlayers   []*sonos.ZonePlayer
-	ZonePlayersMu sync.Mutex
+	ZonePlayersMu sync.RWMutex
 }
 
 func NewSonos() *Sonos {

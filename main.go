@@ -233,6 +233,8 @@ func (m *MusicServer) toSonosSongUri(songId int) string {
 func (m *MusicServer) GetSonos(w http.ResponseWriter, zp *sonos.ZonePlayer, req *http.Request) {
 	ctx := req.Context()
 	unsubscribe := make(chan struct{})
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-store")
 	m.subscriptions.Subscribe(zp.AVTransport.EventEndpoint, unsubscribe, func(e string) {
 		var ev sonosevs.AudioTransportEvent
 		xml.Unmarshal([]byte(e), &ev)
@@ -244,6 +246,10 @@ func (m *MusicServer) GetSonos(w http.ResponseWriter, zp *sonos.ZonePlayer, req 
 			return
 		}
 		playing := ev.InstanceID.TransportState.Val == "PLAYING"
+		var albumArtURI string
+		if len(didl.Item.AlbumArtURI) > 0 {
+			albumArtURI = "http://" + zp.AVTransport.ControlEndpoint.Host + didl.Item.AlbumArtURI
+		}
 		resBytes, err := json.Marshal(&ListSonosRes{
 			Sonos: &SonosState{
 				Track:       didl.Item.Title,
@@ -252,15 +258,16 @@ func (m *MusicServer) GetSonos(w http.ResponseWriter, zp *sonos.ZonePlayer, req 
 				Duration:    ev.InstanceID.CurrentTrackDuration.Val,
 				Playing:     &playing,
 				Position:    pos.RelTime,
-				AlbumArtURI: "http://" + zp.AVTransport.ControlEndpoint.Host + didl.Item.AlbumArtURI,
+				AlbumArtURI: albumArtURI,
 			},
 		})
 		if err != nil {
 			close(unsubscribe)
 			return
 		}
-		resBytes = append(resBytes, '\n')
-		if _, err := w.Write(resBytes); err != nil {
+		finalBytes := append([]byte("data: "), resBytes...)
+		finalBytes = append(finalBytes, []byte("\n\n")...)
+		if _, err := w.Write(finalBytes); err != nil {
 			close(unsubscribe)
 			return
 		}
@@ -281,8 +288,9 @@ func (m *MusicServer) GetSonos(w http.ResponseWriter, zp *sonos.ZonePlayer, req 
 			close(unsubscribe)
 			return
 		}
-		resBytes = append(resBytes, '\n')
-		if _, err := w.Write(resBytes); err != nil {
+		finalBytes := append([]byte("data: "), resBytes...)
+		finalBytes = append(finalBytes, []byte("\n\n")...)
+		if _, err := w.Write(finalBytes); err != nil {
 			close(unsubscribe)
 			return
 		}
@@ -296,13 +304,13 @@ func (m *MusicServer) GetSonos(w http.ResponseWriter, zp *sonos.ZonePlayer, req 
 }
 
 func (m *MusicServer) ListSonos(w http.ResponseWriter, req *http.Request) {
-	sonosName := strings.TrimPrefix(req.URL.Path, "/api/sonos/")
-	m.sonos.ZonePlayersMu.Lock()
-	defer m.sonos.ZonePlayersMu.Unlock()
+	sonosName, bit, _ := strings.Cut(strings.TrimPrefix(req.URL.Path, "/api/sonos/"), "/")
+	m.sonos.ZonePlayersMu.RLock()
+	defer m.sonos.ZonePlayersMu.RUnlock()
 	if len(sonosName) > 0 {
 		for _, zp := range m.sonos.ZonePlayers {
 			if zp.RoomName() == sonosName {
-				if req.Method == "POST" {
+				if req.Method == "POST" && bit == "play" {
 					WrapApi(func(req *http.Request) (*ListSonosRes, error) {
 						var playReq PlayRequest
 						if err := json.NewDecoder(req.Body).Decode(&playReq); err != nil {
@@ -332,7 +340,7 @@ func (m *MusicServer) ListSonos(w http.ResponseWriter, req *http.Request) {
 						return &ListSonosRes{}, nil
 					})(w, req)
 					return
-				} else if req.Method == "GET" {
+				} else if req.Method == "GET" && bit == "events" {
 					m.GetSonos(w, zp, req)
 					return
 				}
@@ -354,12 +362,6 @@ func (m *MusicServer) ListSonos(w http.ResponseWriter, req *http.Request) {
 			return nil, NewHttpError(fmt.Errorf("bad method"), 400)
 		})(w, req)
 	}
-}
-
-func intercept(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h.ServeHTTP(w, r)
-	})
 }
 
 func main() {
@@ -387,7 +389,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/music/", WrapApi(ms.ListMusic))
 	mux.HandleFunc("/api/sonos/", ms.ListSonos)
-	mux.Handle("/content/", intercept(http.StripPrefix("/content/", http.FileServer(&NoListFs{base: http.Dir(*sourceFolder)}))))
+	mux.Handle("/content/", http.StripPrefix("/content/", http.FileServer(&NoListFs{base: http.Dir(*sourceFolder)})))
 	static.ServeHTML(mux)
 
 	go ms.index.Scan(*sourceFolder)
