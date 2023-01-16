@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/dhowden/tag"
+	"golang.org/x/text/language"
+	"golang.org/x/text/search"
 )
 
 func IsMusicFile(ext string) bool {
@@ -375,4 +377,41 @@ func (mi *MusicIndex) Scan(folder string) {
 		album.AlbumArtPath = albumArtPath
 	}
 	log.Println("album art processing complete")
+}
+
+type SearchResult struct {
+	SongId, AlbumId, ArtistId int
+}
+
+const MaxSearchResults = 300
+
+func (i *MusicIndex) Search(s string) []SearchResult {
+	pattern := search.New(language.English, search.IgnoreCase).CompileString(s)
+
+	results := make([]SearchResult, 0)
+	for idx, artist := range i.Artists {
+		if i, _ := pattern.IndexString(artist.Name); i != -1 {
+			results = append(results, SearchResult{ArtistId: idx, SongId: -1, AlbumId: -1})
+			if len(results) > MaxSearchResults {
+				break
+			}
+		}
+	}
+	for idx, album := range i.Albums {
+		if i, _ := pattern.IndexString(album.Name); i != -1 {
+			results = append(results, SearchResult{AlbumId: idx, SongId: -1, ArtistId: -1})
+			if len(results) > MaxSearchResults {
+				break
+			}
+		}
+	}
+	for idx, song := range i.Songs {
+		if i, _ := pattern.IndexString(song.Title); i != -1 {
+			results = append(results, SearchResult{SongId: idx, AlbumId: -1, ArtistId: -1})
+			if len(results) > MaxSearchResults {
+				break
+			}
+		}
+	}
+	return results
 }

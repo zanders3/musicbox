@@ -142,7 +142,11 @@
     }
     el("results").innerHTML = "";
     var req = new XMLHttpRequest();
-    req.open("GET", "/api/music/" + api);
+    if (api.startsWith("search/")) {
+      req.open("GET", "/api/" + api);
+    } else {
+      req.open("GET", "/api/music/" + api);
+    }
     req.onload = function() {
       let res = JSON.parse(req.response);
       let html = "";
@@ -312,6 +316,15 @@
     getmusic(window.location.hash.slice(1));
   };
   window.onload = function() {
+    el("search").focus();
+    el("search").oninput = function() {
+      let searchstr = el("search").value;
+      if (!window.location.hash.slice(1).startsWith("search")) {
+        window.location.hash = "search/" + searchstr;
+      } else {
+        getmusic("search/" + searchstr);
+      }
+    };
     getmusic(window.location.hash.slice(1));
     refreshsonos();
     el("player-play").onclick = function() {

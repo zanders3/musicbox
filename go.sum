@@ -2,3 +2,5 @@ github.com/dhowden/tag v0.0.0-20220618230019-adf36e896086 h1:ORubSQoKnncsBnR4zD9
 github.com/dhowden/tag v0.0.0-20220618230019-adf36e896086/go.mod h1:Z3Lomva4pyMWYezjMAU5QWRh0p1VvO4199OHlFnyKkM=
 github.com/szatmary/sonos v0.0.0-20191204204454-000c9219ff0e h1:beo21nzzdqCVGe6EdG3Lo3UbU7meQN4JjAAeyZccH94=
 github.com/szatmary/sonos v0.0.0-20191204204454-000c9219ff0e/go.mod h1:F5m1XEgf251EShYE9r+2Rl45NPLGovXttfuAjBb93bY=
+golang.org/x/text v0.6.0 h1:3XmdazWV+ubf7QgHSTWeykHOci5oeekaGJBLkrkaw4k=
+golang.org/x/text v0.6.0/go.mod h1:mrYo+phRRbMaCq/xk9113O4dZlRixOauAjOtrjsXDZ8=

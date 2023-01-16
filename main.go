@@ -140,6 +140,14 @@ func (m *MusicServer) songResult(album *music.Album, songIdx int) Result {
 	}
 }
 
+func artistResult(artist *music.Artist) Result {
+	return Result{
+		Name: artist.Name, Type: ResultType_Artist,
+		Artist: artist.Name,
+		Link:   "artists/" + artist.Name,
+	}
+}
+
 func (m *MusicServer) ListMusic(r *http.Request) (*ListMusicRes, error) {
 	if r.Method != "GET" {
 		return nil, NewHttpError(fmt.Errorf("bad method"), 400)
@@ -157,11 +165,7 @@ func (m *MusicServer) ListMusic(r *http.Request) (*ListMusicRes, error) {
 		if len(path) == 0 {
 			results := make([]Result, 0, len(m.index.Artists))
 			for _, artist := range m.index.Artists {
-				results = append(results, Result{
-					Name: artist.Name, Type: ResultType_Artist,
-					Artist: artist.Name,
-					Link:   "artists/" + artist.Name,
-				})
+				results = append(results, artistResult(&artist))
 			}
 			return &ListMusicRes{Results: results}, nil
 		} else {
@@ -414,6 +418,27 @@ func (m *MusicServer) ListSonos(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+type SearchResponse struct {
+	Results []Result
+}
+
+func (m *MusicServer) SearchMusic(req *http.Request) (*SearchResponse, error) {
+	res := m.index.Search(strings.TrimPrefix(req.URL.Path, "/api/search/"))
+	results := make([]Result, len(res))
+	for idx, r := range res {
+		if r.SongId != -1 {
+			song := m.index.Songs[r.SongId]
+			album := &m.index.Albums[m.index.AlbumIdByName[song.Album]]
+			results[idx] = m.songResult(album, r.SongId)
+		} else if r.AlbumId != -1 {
+			results[idx] = albumResult(&m.index.Albums[r.AlbumId], false)
+		} else if r.ArtistId != -1 {
+			results[idx] = artistResult(&m.index.Artists[r.ArtistId])
+		}
+	}
+	return &SearchResponse{Results: results}, nil
+}
+
 func main() {
 	flag.Parse()
 
@@ -439,6 +464,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/music/", WrapApi(ms.ListMusic))
 	mux.HandleFunc("/api/sonos/", ms.ListSonos)
+	mux.HandleFunc("/api/search/", WrapApi(ms.SearchMusic))
 	mux.Handle("/content/", http.StripPrefix("/content/", http.FileServer(&NoListFs{base: http.Dir(*sourceFolder)})))
 	static.ServeHTML(mux)
 

@@ -149,7 +149,11 @@ function getmusic(api: string) {
     }
     el("results").innerHTML = "";
     var req = new XMLHttpRequest();
-    req.open("GET", "/api/music/" + api);
+    if (api.startsWith("search/")) {
+        req.open("GET", "/api/" + api);
+    } else {
+        req.open("GET", "/api/music/" + api);
+    }
     req.onload = function () {
         let res = JSON.parse(req.response) as ListMusicResult;
         let html = "";
@@ -337,6 +341,15 @@ window.onhashchange = function () {
     getmusic(window.location.hash.slice(1));
 };
 window.onload = function () {
+    (el("search") as HTMLInputElement).focus();
+    (el("search") as HTMLInputElement).oninput = function () {
+        let searchstr = (el("search") as HTMLInputElement).value;
+        if (!window.location.hash.slice(1).startsWith("search")) {
+            window.location.hash = "search/" + searchstr;
+        } else {
+            getmusic("search/" + searchstr);
+        }
+    };
     getmusic(window.location.hash.slice(1));
     refreshsonos();
     el("player-play").onclick = function () {
