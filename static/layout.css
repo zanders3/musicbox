@@ -206,12 +206,18 @@ body {
 .topbar .link {
     float: right;
     color: #E8BE5B;
-    margin-top: 8px;
+    margin-top: 2px;
     margin-right: 10px;
     font-size: 16px;
 }
 
 .topbar .link:hover {
+    color: #C8CFDB;
+}
+
+.topbar input.link {
+    background: #1a2025;
+    border: 2px solid #565E66;
     color: #C8CFDB;
 }
 
@@ -640,7 +646,7 @@ body {
         bottom: 217px;
     }
 
-    #topbarlinks {
+    .topbarlink {
         display: none;
     }
 
