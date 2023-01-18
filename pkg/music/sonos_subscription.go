@@ -25,7 +25,7 @@ type Result struct {
 	Value string `xml:",chardata"`
 }
 
-const Lifetime = 20 * time.Second
+const Lifetime = 60 * time.Second
 
 type subscription struct {
 	maxId          int

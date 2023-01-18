@@ -88,6 +88,7 @@ function prevtrack() {
 type ActionReq = {
     SongIDs?: number[]
     Volume?: number,
+    SetTimeSecs?: number,
     Action?: "Play" | "Pause" | "Next" | "Prev"
 };
 
@@ -239,7 +240,7 @@ type SonosResponse = {
 };
 
 let sonosRooms: string[] = [];
-function sonosroomhtml(): string {
+function sonosroomhtml(sonosRoom: string): string {
     let html = `<div onclick="setspeaker(this)" data-room="" class="${sonosRoom.length == 0 ? 'selected' : ''}"><span class="valign-wrapper"><i class="material-icons">${sonosRoom.length == 0 ? 'check' : 'speaker'}</i> Speaker</span></div>`;
     for (let room of sonosRooms) {
         html += `<div onclick="setspeaker(this)" data-room="${room}" class="${sonosRoom == room ? 'selected' : ''}"><span class="valign-wrapper"><i class="material-icons">${sonosRoom == room ? 'check' : 'speaker'}</i> ${room}</span></div>`;
@@ -265,19 +266,22 @@ function tickSonosTime() {
     setspeaker((elem as HTMLElement).dataset.room as string);
 };
 function setspeaker(room: string) {
-    sonosRoom = room;
-    console.log("set " + sonosRoom);
-    el("sonos-list").innerHTML = sonosroomhtml();
-    el("player-speakers").innerHTML = `<span class="valign-wrapper"><i class=" material-icons ${sonosRoom.length > 0 ? 'selected' : ''}">speaker</i>${sonosRoom}</span>`;
     audio.pause();
-
+    el("sonos-list").innerHTML = sonosroomhtml(sonosRoom);
     if (evts != null) {
         evts.close();
     }
-    if (sonosRoom.length > 0) {
+    if (room.length > 0) {
+        console.log("connecting " + room);
+        let first_message = true;
         el("player-right").classList.remove("player-right-volume");
-        evts = new EventSource("/api/sonos/" + sonosRoom + "/events");
+        evts = new EventSource("/api/sonos/" + room + "/events");
         evts.onmessage = (event) => {
+            if (first_message) {
+                sonosRoom = room;
+                console.log("set " + sonosRoom);
+                el("player-speakers").innerHTML = `<span class="valign-wrapper"><i class=" material-icons ${sonosRoom.length > 0 ? 'selected' : ''}">speaker</i>${sonosRoom}</span>`;
+            }
             let res = JSON.parse(event.data) as SonosResponse;
             console.log(res);
             if (res.Sonos.Track) {
@@ -320,7 +324,7 @@ function refreshsonos() {
     req.open("GET", "/api/sonos");
     req.onload = function () {
         sonosRooms = (JSON.parse(req.response) as SonosResponse).Rooms ?? [];
-        el("sonos-list").innerHTML = sonosroomhtml();
+        el("sonos-list").innerHTML = sonosroomhtml("");
         el("player-speakers").onclick = (e) => {
             let style = el("sonos-list").style;
             let button = el("player-speakers").getBoundingClientRect();
@@ -376,7 +380,11 @@ window.onload = function () {
     el("player-range").oninput = function () {
         enable_range_update = true;
         let time = parseFloat((el("player-range") as HTMLInputElement).value);
-        audio.currentTime = time;
+        if (sonosRoom.length > 0) {
+            sonoscommand({ SetTimeSecs: time });
+        } else {
+            audio.currentTime = time;
+        }
     };
     el("player-mute").onclick = function () {
         if (audio.volume == 0) {

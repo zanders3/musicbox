@@ -227,9 +227,10 @@ type ListSonosRes struct {
 }
 
 type ActionRequest struct {
-	SongIDs []int
-	Volume  *int
-	Action  string // Play, Pause, Next, Prev
+	SongIDs     []int
+	Volume      *int
+	SetTimeSecs *int
+	Action      string // Play, Pause, Next, Prev
 }
 
 func (m *MusicServer) toSonosSongUri(songId int) string {
@@ -244,8 +245,10 @@ func (m *MusicServer) toSonosSongMetadata(songId int) string {
 		albumArtUri = m.internalAddr + "/content" + strings.ReplaceAll(m.index.Albums[album].AlbumArtPath, " ", "%20")
 	}
 	songExt := path.Ext(songUri)
-	s := fmt.Sprintf("<DIDL-Lite xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\" xmlns:r=\"urn:schemas-rinconnetworks-com:metadata-1-0/\" xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\"><item id=\"-1\" parentID=\"-1\" restricted=\"true\"><res protocolInfo=\"http-get:*:audio/%s:*\" duration=\"0:04:47\">%s</res><r:streamContent></r:streamContent><r:radioShowMd></r:radioShowMd><r:streamInfo>bd:16,sr:44100,c:3,l:0,d:0</r:streamInfo><dc:title>%s</dc:title><upnp:class>object.item.audioItem.musicTrack</upnp:class><dc:creator>%s</dc:creator><upnp:album>%s</upnp:album><upnp:originalTrackNumber>4</upnp:originalTrackNumber><r:narrator>%s</r:narrator><r:albumArtist>%s</r:albumArtist><upnp:albumArtURI>%s</upnp:albumArtURI></item></DIDL-Lite>",
+	durationStr := fmt.Sprintf("%02d:%02d:%02d", song.DurationSecs/(60*60), song.DurationSecs/60, song.DurationSecs%60)
+	s := fmt.Sprintf("<DIDL-Lite xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\" xmlns:r=\"urn:schemas-rinconnetworks-com:metadata-1-0/\" xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\"><item id=\"-1\" parentID=\"-1\" restricted=\"true\"><res protocolInfo=\"http-get:*:audio/%s:*\" duration=\"%s\">%s</res><r:streamContent></r:streamContent><r:radioShowMd></r:radioShowMd><r:streamInfo>bd:16,sr:44100,c:3,l:0,d:0</r:streamInfo><dc:title>%s</dc:title><upnp:class>object.item.audioItem.musicTrack</upnp:class><dc:creator>%s</dc:creator><upnp:album>%s</upnp:album><upnp:originalTrackNumber>4</upnp:originalTrackNumber><r:narrator>%s</r:narrator><r:albumArtist>%s</r:albumArtist><upnp:albumArtURI>%s</upnp:albumArtURI></item></DIDL-Lite>",
 		songExt,
+		durationStr,
 		songUri,
 		song.Title,
 		song.Artist,
@@ -388,6 +391,12 @@ func (m *MusicServer) ListSonos(w http.ResponseWriter, req *http.Request) {
 								return nil, err
 							}
 							if _, err := zp.AVTransport.Play(zp.HttpClient, &avtransport.PlayArgs{InstanceID: 0, Speed: "1"}); err != nil {
+								return nil, err
+							}
+						}
+						if actionReq.SetTimeSecs != nil {
+							seekStr := fmt.Sprintf("%02d:%02d:%02d", *actionReq.SetTimeSecs/(60*60), *actionReq.SetTimeSecs/60, *actionReq.SetTimeSecs%60)
+							if _, err := zp.AVTransport.Seek(zp.HttpClient, &avtransport.SeekArgs{InstanceID: 0, Unit: "REL_TIME", Target: seekStr}); err != nil {
 								return nil, err
 							}
 						}

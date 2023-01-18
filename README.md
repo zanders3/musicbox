@@ -28,7 +28,7 @@ set GOOS=linux
 set GOARM=5
 set GOARCH=arm
 go build -tags static
-scp music pi@rasperrypi:
+scp music pi@rasperrypi
 ```
 
 Running on a Raspberry PI

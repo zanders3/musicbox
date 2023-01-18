@@ -3,6 +3,7 @@ package music
 import (
 	"bytes"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
@@ -13,9 +14,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +41,7 @@ func IsMusicFile(ext string) bool {
 type Song struct {
 	Path, Title, Artist, Album string
 	TrackNum, TrackTotal, Year int
+	DurationSecs               int
 }
 
 type Album struct {
@@ -59,18 +64,36 @@ type MusicIndex struct {
 	AlbumIdByName map[string]int
 }
 
-func scanFolder(songs []Song, rootFolder, folder string) ([]Song, error) {
+type ffprobeTags struct {
+	Artist string `json:"artist"`
+	Album  string `json:"album"`
+	Title  string `json:"title"`
+	Track  string `json:"track"`
+	Date   string `json:"date"`
+}
+
+type ffprobeFormat struct {
+	Duration string      `json:"duration"` // 1800.048000
+	Tags     ffprobeTags `json:"tags"`
+}
+
+type ffprobeResult struct {
+	Format ffprobeFormat `json:"format"`
+}
+
+func scanFolder(songs []Song, rootFolder, folder string, ffprobePath string) ([]Song, error) {
 	entries, err := os.ReadDir(folder)
 	if err != nil {
 		return nil, err
 	}
+
 	foundSongs, foundTrackNums := false, false
 	numSongs := len(songs)
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() {
 			var err error
-			songs, err = scanFolder(songs, rootFolder, path.Join(folder, name))
+			songs, err = scanFolder(songs, rootFolder, path.Join(folder, name), ffprobePath)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", name, err)
 			}
@@ -87,30 +110,56 @@ func scanFolder(songs []Song, rootFolder, folder string) ([]Song, error) {
 				}
 				continue
 			}
-			f, err := os.Open(fullPath)
-			if err != nil {
+			if len(ffprobePath) > 0 {
+				ffmpegJson, err := exec.Command(ffprobePath, "-v", "quiet", "-show_format", "-print_format", "json", fullPath).Output()
+				if err != nil {
+					return nil, fmt.Errorf("failed to ffprobe %s: '%s' %w", fullPath, string(ffmpegJson), err)
+				}
+				var result ffprobeResult
+				if err := json.Unmarshal(ffmpegJson, &result); err != nil {
+					return nil, fmt.Errorf("failed to parse ffprobe %s: got '%s': %w", fullPath, string(ffmpegJson), err)
+				}
+				result.Format.Duration, _, _ = strings.Cut(result.Format.Duration, ".")
+				duration, _ := strconv.ParseInt(result.Format.Duration, 10, 32)
+				year, _ := strconv.ParseInt(result.Format.Tags.Date, 10, 32)
+				trackStr, numTrackStr, _ := strings.Cut(result.Format.Tags.Track, "/")
+				track, _ := strconv.ParseInt(trackStr, 10, 32)
+				numTracks, _ := strconv.ParseInt(numTrackStr, 10, 32)
+				songs = append(songs, Song{
+					Path:  relativePath,
+					Title: result.Format.Tags.Title, Artist: result.Format.Tags.Artist, Album: result.Format.Tags.Album,
+					TrackNum: int(track), TrackTotal: int(numTracks), Year: int(year),
+					DurationSecs: int(duration),
+				})
+				if track > 0 {
+					foundTrackNums = true
+				}
+			} else {
+				f, err := os.Open(fullPath)
+				if err != nil {
+					f.Close()
+					return nil, fmt.Errorf("failed to read %s: %w", fullPath, err)
+				}
+				m, err := tag.ReadFrom(f)
+				if err != nil {
+					f.Close()
+					return nil, fmt.Errorf("failed to parse %s: %w", fullPath, err)
+				}
+				trackNum, trackTotal := m.Track()
+				artist := m.AlbumArtist()
+				if len(artist) == 0 {
+					artist = m.Artist()
+				}
+				songs = append(songs, Song{
+					Path:  relativePath,
+					Title: m.Title(), Artist: artist, Album: m.Album(),
+					TrackNum: trackNum, TrackTotal: trackTotal, Year: m.Year(),
+				})
+				if trackNum > 0 {
+					foundTrackNums = true
+				}
 				f.Close()
-				return nil, fmt.Errorf("failed to read %s: %w", fullPath, err)
 			}
-			m, err := tag.ReadFrom(f)
-			if err != nil {
-				f.Close()
-				return nil, fmt.Errorf("failed to parse %s: %w", fullPath, err)
-			}
-			trackNum, trackTotal := m.Track()
-			artist := m.AlbumArtist()
-			if len(artist) == 0 {
-				artist = m.Artist()
-			}
-			songs = append(songs, Song{
-				Path:  relativePath,
-				Title: m.Title(), Artist: artist, Album: m.Album(),
-				TrackNum: trackNum, TrackTotal: trackTotal, Year: m.Year(),
-			})
-			if trackNum > 0 {
-				foundTrackNums = true
-			}
-			f.Close()
 		}
 	}
 	if foundSongs {
@@ -151,7 +200,17 @@ func scanFolder(songs []Song, rootFolder, folder string) ([]Song, error) {
 
 func (mi *MusicIndex) Scan(folder string) {
 	log.Println("starting file scan")
-	songs, err := scanFolder([]Song{}, folder, folder)
+	ffprobePath := "ffprobe"
+	if runtime.GOOS == "windows" {
+		ffprobePath = "bin\\ffprobe.exe"
+	}
+	if _, err := exec.LookPath(ffprobePath); err == nil {
+		log.Println("using ffprobe for metadata!")
+	} else {
+		ffprobePath = ""
+		log.Println("ffprobe not found - falling back on built in tag parsing")
+	}
+	songs, err := scanFolder([]Song{}, folder, folder, ffprobePath)
 	if err != nil {
 		log.Printf("failed to scan: %v", err)
 		return
