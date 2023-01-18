@@ -3,7 +3,9 @@
 
 package static
 
-import "net/http"
+import (
+	"net/http"
+)
 
 func ServeHTML(mux *http.ServeMux) {
 	mux.Handle("/", http.FileServer(http.Dir("static/")))

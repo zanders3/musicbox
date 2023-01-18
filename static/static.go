@@ -12,5 +12,5 @@ import (
 var content embed.FS
 
 func ServeHTML(mux *http.ServeMux) {
-	http.HandleFunc("/", http.FileServer(http.FS(content)))
+	mux.Handle("/", http.FileServer(http.FS(content)))
 }
