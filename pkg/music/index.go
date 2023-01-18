@@ -65,7 +65,7 @@ type MusicIndex struct {
 }
 
 type ffprobeTags struct {
-	Artist string `json:"artist"`
+	Artist string `json:"album_artist"`
 	Album  string `json:"album"`
 	Title  string `json:"title"`
 	Track  string `json:"track"`
