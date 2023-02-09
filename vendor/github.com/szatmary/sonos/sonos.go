@@ -2,7 +2,6 @@ package sonos
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -34,28 +33,22 @@ func NewSonos() (*Sonos, error) {
 		udpReader:    bufio.NewReader(conn),
 		found:        make(chan *ZonePlayer),
 	}
-
-	return &s, nil
-}
-
-func (s *Sonos) Close() {
-	s.listenSocket.Close()
-}
-
-func (s *Sonos) Search() (chan *ZonePlayer, error) {
 	go func() {
 		for {
 			response, err := http.ReadResponse(s.udpReader, nil)
 			if err != nil {
+				time.Sleep(10 * time.Second)
 				continue
 			}
 
 			location, err := url.Parse(response.Header.Get("Location"))
 			if err != nil {
+				time.Sleep(10 * time.Second)
 				continue
 			}
 			zp, err := NewZonePlayer(location)
 			if err != nil {
+				time.Sleep(10 * time.Second)
 				continue
 			}
 			if zp.IsCoordinator() {
@@ -63,7 +56,10 @@ func (s *Sonos) Search() (chan *ZonePlayer, error) {
 			}
 		}
 	}()
+	return &s, nil
+}
 
+func (s *Sonos) Search() (chan *ZonePlayer, error) {
 	// MX should be set to use timeout value in integer seconds
 	pkt := []byte(fmt.Sprintf("M-SEARCH * HTTP/1.1\r\nHOST: %s\r\nMAN: \"ssdp:discover\"\r\nMX: %d\r\nST: %s\r\n\r\n", bcastaddr, mx, st))
 	bcast, err := net.ResolveUDPAddr("udp", bcastaddr)
@@ -74,27 +70,5 @@ func (s *Sonos) Search() (chan *ZonePlayer, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return s.found, nil
-}
-
-func FindRoom(room string, timeout time.Duration) (*ZonePlayer, error) {
-	son, err := NewSonos()
-	if err != nil {
-		return nil, err
-	}
-	defer son.Close()
-
-	found, _ := son.Search()
-	to := time.After(timeout)
-	for {
-		select {
-		case <-to:
-			return nil, errors.New("timeout")
-		case zp := <-found:
-			if zp.RoomName() == room {
-				return zp, nil
-			}
-		}
-	}
 }

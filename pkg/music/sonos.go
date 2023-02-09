@@ -3,6 +3,7 @@ package music
 import (
 	"log"
 	"sync"
+	"time"
 
 	"github.com/szatmary/sonos"
 )
@@ -24,14 +25,19 @@ func (s *Sonos) search() {
 		log.Println(err)
 		return
 	}
-	zns, err := sn.Search()
-	if err != nil {
-		log.Fatal(err)
-	}
-	for zp := range zns {
-		log.Println("found sonos: " + zp.RoomName())
-		s.ZonePlayersMu.Lock()
-		s.ZonePlayers = append(s.ZonePlayers, zp)
-		s.ZonePlayersMu.Unlock()
+	for {
+		zns, err := sn.Search()
+		if err != nil {
+			log.Printf("failed to search for sonos trying again in 10 seconds: %v", err)
+			time.Sleep(10 * time.Second)
+			continue
+		}
+		for zp := range zns {
+			log.Println("found sonos: " + zp.RoomName())
+			s.ZonePlayersMu.Lock()
+			s.ZonePlayers = append(s.ZonePlayers, zp)
+			s.ZonePlayersMu.Unlock()
+		}
+		return
 	}
 }

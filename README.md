@@ -93,8 +93,9 @@ then plonk this into `music.service`
 ```
 [Unit]
 Description=Music Box
-After=network-online.target
- 
+After=network-online.target media-data.mount
+Requires=media-data.mount
+
 [Service]
 ExecStart=/opt/musicbox/music -folder=/media/data/Music
 WorkingDirectory=/opt/musicbox
