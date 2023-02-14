@@ -230,11 +230,11 @@ type SonosResponse = {
     Sonos: {
         Album: string | undefined,
         AlbumArtURI: string | undefined,
-        Artist: string,
-        Duration: string,
-        Playing: boolean,
-        Position: string,
-        Track: string,
+        Artist: string | undefined,
+        Duration: string | undefined,
+        Playing: boolean | undefined,
+        Position: string | undefined,
+        Track: string | undefined,
         Volume: number | undefined
     },
 };
@@ -286,11 +286,11 @@ function setspeaker(room: string) {
             let res = JSON.parse(event.data) as SonosResponse;
             console.log(res);
             if (res.Sonos.Track) {
-                is_playing = res.Sonos.Playing;
+                is_playing = res.Sonos.Playing ?? false;
                 el("player-play").innerHTML = res.Sonos.Playing ? `<i class="material-icons">pause</i>` : `<i class="material-icons">play_arrow</i>`;
-                el("player-endtime").innerText = formatTime(parseTime(res.Sonos.Duration));
-                (el("player-range") as HTMLInputElement).max = parseTime(res.Sonos.Duration).toString();
-                sonosTimeSecs = parseTime(res.Sonos.Position);
+                el("player-endtime").innerText = formatTime(parseTime(res.Sonos.Duration ?? ""));
+                (el("player-range") as HTMLInputElement).max = parseTime(res.Sonos.Duration ?? "").toString();
+                sonosTimeSecs = parseTime(res.Sonos.Position ?? "");
                 tickSonosTime();
                 if (is_playing) {
                     clearInterval(sonosTickId);
@@ -307,8 +307,12 @@ function setspeaker(room: string) {
             }
         };
         evts.onerror = () => {
-            console.log("connection lost");
+            console.log("connection lost - connecting to " + room + " in 1 second");
             setspeaker("");
+            setTimeout(() => {
+                console.log("attempting reconnect to " + room);
+                setspeaker(room);
+            }, 1000);
         };
     } else {
         el("player-speakers").innerHTML = `<span class="valign-wrapper"><i class="material-icons">speaker</i></span>`;

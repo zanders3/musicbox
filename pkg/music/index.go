@@ -296,6 +296,10 @@ func (mi *MusicIndex) Scan(folder string) {
 			albumIdByName := make(map[string]int, len(index.Albums))
 			for idx, album := range index.Albums {
 				albumIdByName[album.Name] = idx
+
+				if strings.HasPrefix(album.AlbumArtPath, folder) {
+					index.Albums[idx].AlbumArtPath = strings.TrimPrefix(album.AlbumArtPath, folder)
+				}
 			}
 			mi.SongsMu.Lock()
 			mi.Songs, mi.Albums, mi.Artists, mi.AlbumIdByName = index.Songs, index.Albums, index.Artists, albumIdByName
@@ -477,163 +481,6 @@ func (mi *MusicIndex) Scan(folder string) {
 	} else {
 		log.Println("saved index to disk")
 	}
-	// alreadyProcessedAlbums := make(map[string]string)
-	// processedAlbumsFile, err := os.OpenFile(path.Join(folder, "albums.csv"), os.O_RDWR|os.O_CREATE, 0644)
-	// if err != nil {
-	// 	log.Println(err.Error())
-	// 	return
-	// }
-	// defer processedAlbumsFile.Close()
-	// {
-	// 	albumReader := csv.NewReader(processedAlbumsFile)
-	// 	records, err := albumReader.ReadAll()
-	// 	if err != nil {
-	// 		log.Println(err.Error())
-	// 		return
-	// 	}
-	// 	for _, album := range records {
-	// 		alreadyProcessedAlbums[album[0]+":"+album[1]] = album[2]
-	// 	}
-	// }
-	// processedAlbumsCsv := csv.NewWriter(processedAlbumsFile)
-	// client := http.Client{}
-	// for _, album := range albums {
-	// 	if len(album.AlbumArtPath) > 0 {
-	// 		continue
-	// 	}
-	// 	albumArtPath := path.Join(folder, path.Dir(songs[album.StartSongIdx].Path), "Folder.jpg")
-	// 	mbid, exists := alreadyProcessedAlbums[album.Artist+":"+album.Name]
-	// 	if exists {
-	// 		continue
-	// 	}
-
-	// 	songFile, err := os.Open(path.Join(folder, songs[album.StartSongIdx].Path))
-	// 	if err != nil {
-	// 		log.Println(err.Error())
-	// 		return
-	// 	}
-	// 	m, err := tag.ReadFrom(songFile)
-	// 	if err != nil {
-	// 		log.Println(err.Error())
-	// 		songFile.Close()
-	// 		return
-	// 	}
-	// 	pic := m.Picture()
-	// 	if pic != nil {
-	// 		if pic.MIMEType == "image/jpeg" {
-	// 			if err := os.WriteFile(albumArtPath, pic.Data, 0644); err != nil {
-	// 				songFile.Close()
-	// 				log.Println(err.Error())
-	// 				return
-	// 			}
-	// 			album.AlbumArtPath = albumArtPath
-	// 			songFile.Close()
-	// 			continue
-	// 		}
-	// 	}
-	// 	songFile.Close()
-
-	// 	log.Printf("fetching %s %s", album.Artist, album.Name)
-	// 	url := strings.ReplaceAll(fmt.Sprintf("https://musicbrainz.org/ws/2/release?query=artist=%s AND Album=%s&fmt=json&limit=1", album.Artist, album.Name), " ", "%20")
-	// 	req, err := http.NewRequest("GET", url, bytes.NewReader([]byte{}))
-	// 	req.Header.Add("User-Agent", "MusicBox/0.0.1 ( 3zanders@gmail.com )")
-	// 	if err != nil {
-	// 		log.Println(err.Error())
-	// 		return
-	// 	}
-	// 	res, err := client.Do(req)
-	// 	if err != nil {
-	// 		log.Println(err.Error())
-	// 		return
-	// 	}
-	// 	resBytes, err := io.ReadAll(res.Body)
-	// 	if err != nil {
-	// 		log.Println(err.Error())
-	// 		return
-	// 	}
-	// 	resStr := string(resBytes)
-	// 	startIdx := strings.Index(resStr, "\"releases\":[{\"id\":\"")
-	// 	if startIdx != -1 {
-	// 		endIdx := strings.Index(resStr[startIdx+19:], "\"")
-	// 		mbid = resStr[startIdx+19 : startIdx+19+endIdx]
-	// 		log.Printf("%s %s has mbid %s", album.Artist, album.Name, mbid)
-	// 	} else {
-	// 		log.Printf("%s %s has no results", album.Artist, album.Name)
-	// 		if err := processedAlbumsCsv.Write([]string{album.Artist, album.Name, mbid}); err != nil {
-	// 			log.Println(err.Error())
-	// 			return
-	// 		}
-	// 		processedAlbumsCsv.Flush()
-	// 		continue
-	// 	}
-	// 	imageUrl := fmt.Sprintf("http://coverartarchive.org/release/%s/front", mbid)
-	// 	log.Printf("downloading %s %s: %s to %s", album.Artist, album.Name, imageUrl, albumArtPath)
-	// 	imageRes, err := http.Get(imageUrl)
-	// 	if err != nil {
-	// 		log.Println(err.Error())
-	// 		return
-	// 	}
-	// 	if imageRes.StatusCode == 404 {
-	// 		log.Println("not found")
-	// 		if err := processedAlbumsCsv.Write([]string{album.Artist, album.Name, mbid}); err != nil {
-	// 			log.Println(err.Error())
-	// 			return
-	// 		}
-	// 		processedAlbumsCsv.Flush()
-	// 		continue
-	// 	}
-	// 	if imageRes.StatusCode != 200 {
-	// 		imageResBytes, _ := io.ReadAll(imageRes.Body)
-	// 		log.Printf("%d: %s", res.StatusCode, string(imageResBytes))
-	// 		return
-	// 	}
-	// 	contentType := imageRes.Header.Get("content-type")
-	// 	if contentType == "image/jpeg" {
-	// 		albumArtFile, err := os.Create(albumArtPath)
-	// 		if err != nil {
-	// 			log.Println(err.Error())
-	// 			return
-	// 		}
-	// 		if _, err := io.Copy(albumArtFile, imageRes.Body); err != nil {
-	// 			log.Println(err.Error())
-	// 			albumArtFile.Close()
-	// 			return
-	// 		}
-	// 		defer albumArtFile.Close()
-	// 	} else if contentType == "image/png" {
-	// 		img, err := png.Decode(imageRes.Body)
-	// 		if err != nil {
-	// 			log.Println(err.Error())
-	// 			return
-	// 		}
-	// 		newImg := image.NewRGBA(img.Bounds())
-	// 		draw.Draw(newImg, newImg.Bounds(), &image.Uniform{color.White}, image.Point{}, draw.Src)
-	// 		draw.Draw(newImg, newImg.Bounds(), img, image.Point{}, draw.Src)
-	// 		albumArtFile, err := os.Create(albumArtPath)
-	// 		if err != nil {
-	// 			log.Println(err.Error())
-	// 			return
-	// 		}
-	// 		if err := jpeg.Encode(albumArtFile, newImg, &jpeg.Options{Quality: 80}); err != nil {
-	// 			log.Println(err.Error())
-	// 			albumArtFile.Close()
-	// 			return
-	// 		}
-	// 		albumArtFile.Close()
-	// 	} else {
-	// 		log.Printf("bad image: %s", contentType)
-	// 		return
-	// 	}
-	// 	log.Printf("downloaded ok!")
-	// 	if err := processedAlbumsCsv.Write([]string{album.Artist, album.Name, mbid}); err != nil {
-	// 		log.Println(err.Error())
-	// 		return
-	// 	}
-	// 	processedAlbumsCsv.Flush()
-	// 	time.Sleep(time.Second)
-	// 	album.AlbumArtPath = albumArtPath
-	// }
-	// log.Println("album art processing complete")
 }
 
 type SearchResult struct {

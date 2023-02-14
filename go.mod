@@ -7,4 +7,4 @@ require (
 	github.com/szatmary/sonos v0.0.0-20191204204454-000c9219ff0e
 )
 
-require golang.org/x/text v0.6.0 // indirect
+require golang.org/x/text v0.6.0
